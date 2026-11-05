@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: jooq-transaction-management-demo
+  sql:
+    init:
+      mode: always
+  jooq:
+    sql-dialect: postgres
+
+logging:
+  level:
+    # Shows BEGIN / SAVEPOINT / RELEASE / ROLLBACK TO SAVEPOINT / COMMIT
+    org.springframework.jdbc.support.JdbcTransactionManager: DEBUG
+    org.jooq.tools.LoggerListener: DEBUG

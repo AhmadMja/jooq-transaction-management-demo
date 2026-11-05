@@ -1,0 +1,11 @@
+CREATE TABLE IF NOT EXISTS account
+(
+    id     INT PRIMARY KEY,
+    status VARCHAR(64) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS outbox
+(
+    message_id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    payload    TEXT NOT NULL
+);
