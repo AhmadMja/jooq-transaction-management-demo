@@ -1,4 +1,4 @@
-package com.ahmad.jooq_transaction_management_demo.account
+package com.ahmad.jooq_transaction_management_demo.common
 
 import org.jooq.impl.DSL
 import org.jooq.impl.SQLDataType

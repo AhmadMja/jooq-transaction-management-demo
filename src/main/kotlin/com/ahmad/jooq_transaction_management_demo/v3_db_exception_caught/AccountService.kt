@@ -1,0 +1,27 @@
+package com.ahmad.jooq_transaction_management_demo.v3_db_exception_caught
+
+import com.ahmad.jooq_transaction_management_demo.common.AccountTable.ID
+import com.ahmad.jooq_transaction_management_demo.common.AccountTable.STATUS
+import com.ahmad.jooq_transaction_management_demo.common.AccountTable.TABLE
+import org.jooq.DSLContext
+import org.slf4j.LoggerFactory
+import org.springframework.stereotype.Service
+
+@Service("accountService_db_exception_caught")
+class AccountService(
+    private val dsl: DSLContext,
+    private val outboxService: OutboxService,
+) {
+
+    val log = LoggerFactory.getLogger(AccountService::class.java)
+
+    fun changeStatus(id: Int, status: String) {
+        dsl.transaction { _ ->
+            dsl.update(TABLE)
+                .set(STATUS, status)
+                .where(ID.eq(id))
+                .execute()
+            outboxService.publish("accountId: $id changed status to $status")
+        }
+    }
+}
