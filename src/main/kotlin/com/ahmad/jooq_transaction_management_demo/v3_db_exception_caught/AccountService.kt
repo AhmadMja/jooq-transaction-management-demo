@@ -3,6 +3,7 @@ package com.ahmad.jooq_transaction_management_demo.v3_db_exception_caught
 import com.ahmad.jooq_transaction_management_demo.common.AccountTable.ID
 import com.ahmad.jooq_transaction_management_demo.common.AccountTable.STATUS
 import com.ahmad.jooq_transaction_management_demo.common.AccountTable.TABLE
+import com.ahmad.jooq_transaction_management_demo.common.DslUtils.logTransactionInfo
 import org.jooq.DSLContext
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -21,6 +22,7 @@ class AccountService(
                 .set(STATUS, status)
                 .where(ID.eq(id))
                 .execute()
+            logTransactionInfo(dsl)
             outboxService.publish("accountId: $id changed status to $status")
         }
     }

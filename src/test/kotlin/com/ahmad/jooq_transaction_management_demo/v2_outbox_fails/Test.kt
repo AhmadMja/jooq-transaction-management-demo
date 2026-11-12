@@ -28,6 +28,7 @@ class Test {
     fun setUp() {
         dsl.execute("TRUNCATE account, outbox RESTART IDENTITY")
         dsl.execute("INSERT INTO account (id, status) VALUES (1, 'NEW')")
+        dsl.resultQuery("select pg_stat_clear_snapshot()").fetch()
     }
 
     @Test
@@ -39,6 +40,7 @@ class Test {
         val accounts = dsl.select().from(AccountTable.TABLE).fetch()
         val outboxMessages = dsl.select().from(OutboxTable.TABLE).fetch()
 
+        // Then: Nothing is saved.
         assertThat(accounts.size).isEqualTo(1)
         assertThat(accounts[0].get(AccountTable.STATUS)).isEqualTo("NEW")
         assertThat(outboxMessages.size).isEqualTo(0)

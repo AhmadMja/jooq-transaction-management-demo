@@ -1,5 +1,6 @@
 package com.ahmad.jooq_transaction_management_demo.v2_outbox_fails
 
+import com.ahmad.jooq_transaction_management_demo.common.DslUtils.logTransactionInfo
 import com.ahmad.jooq_transaction_management_demo.common.OutboxTable.MESSAGE_ID
 import com.ahmad.jooq_transaction_management_demo.common.OutboxTable.PAYLOAD
 import com.ahmad.jooq_transaction_management_demo.common.OutboxTable.TABLE
@@ -22,6 +23,7 @@ class OutboxService(private val dsl: DSLContext) {
                 .set(PAYLOAD, payload)
                 .returning(MESSAGE_ID)
                 .fetchOne(MESSAGE_ID)!!
+            logTransactionInfo(dsl)
             log.info("------publish: fail in the inner transaction.")
             dsl.execute("SELECT 1/0")
         }

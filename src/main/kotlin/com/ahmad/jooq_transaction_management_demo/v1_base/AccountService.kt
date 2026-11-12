@@ -3,6 +3,7 @@ package com.ahmad.jooq_transaction_management_demo.v1_base
 import com.ahmad.jooq_transaction_management_demo.common.AccountTable.ID
 import com.ahmad.jooq_transaction_management_demo.common.AccountTable.STATUS
 import com.ahmad.jooq_transaction_management_demo.common.AccountTable.TABLE
+import com.ahmad.jooq_transaction_management_demo.common.DslUtils.logTransactionInfo
 import org.jooq.DSLContext
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -24,6 +25,7 @@ class AccountService(
                 .where(ID.eq(id))
                 .execute()
             log.info("---changeStatus: after calling db.")
+            logTransactionInfo(dsl)
             outboxService.publish("accountId: $id changed status to $status")
             log.info("---changeStatus: inside transaction block, after published returned.")
         }

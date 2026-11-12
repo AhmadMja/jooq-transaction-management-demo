@@ -3,6 +3,7 @@ package com.ahmad.jooq_transaction_management_demo.v5_base_with_jooq_default_tx_
 import com.ahmad.jooq_transaction_management_demo.common.AccountTable.ID
 import com.ahmad.jooq_transaction_management_demo.common.AccountTable.STATUS
 import com.ahmad.jooq_transaction_management_demo.common.AccountTable.TABLE
+import com.ahmad.jooq_transaction_management_demo.common.DslUtils.logTransactionInfo
 import org.jooq.DSLContext
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -19,6 +20,7 @@ class AccountService(
         log.info("---changeStatus: beginning of the method, before transaction block")
         dsl.transaction { _ ->
             log.info("---changeStatus: before calling db")
+            logTransactionInfo(dsl)
             dsl.update(TABLE)
                 .set(STATUS, status)
                 .where(ID.eq(id))
