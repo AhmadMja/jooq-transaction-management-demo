@@ -148,6 +148,7 @@ Each case is a package under `src/main/kotlin/.../vN_*` with a matching test und
     outer block threw -> Spring rolled back
     final state: account=ACTIVE, outbox=1       <- the rollback undid nothing
     ```
+    // TODO: extract this to a new case: What happens if we mix transaction providers and the outer transaction fails after the inner transaction is commited? 
 - Takeaway: **don't mix transaction providers.** The inner block silently commits the outer transaction early, and an outer rollback can no longer undo it.
 
 ### v6: `@Transactional` + checked exception: the failure gets committed
