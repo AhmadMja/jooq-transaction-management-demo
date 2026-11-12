@@ -150,6 +150,78 @@ Each case is a package under `src/main/kotlin/.../vN_*` with a matching test und
     ```
 - Takeaway: **don't mix transaction providers.** The inner block silently commits the outer transaction early, and an outer rollback can no longer undo it.
 
+### v6: `@Transactional` + checked exception: the failure gets committed
+
+- Code: `v6_checked_exception_with_annotation`
+- `changeStatus()` and `publish()` are both `@Transactional`. `publish()` inserts, then throws `IOException`. Kotlin doesn't force anyone to declare or handle it.
+- Logs:
+  ```
+  Creating new transaction ... PROPAGATION_REQUIRED    -> BEGIN
+  Participating in existing transaction                -> no SQL
+  publish: fail with a checked exception.
+  Initiating transaction commit                        -> COMMIT  (!)
+  ```
+- Result: the caller gets `IOException`, yet the account is `ACTIVE` and **the outbox row written just before the failure is committed**.
+- Why: the two mechanisms use different rollback rules.
+
+  | Mechanism         | Rolls back on                                      | Checked exception                                 |
+  |-------------------|----------------------------------------------------|---------------------------------------------------|
+  | `@Transactional`  | `RuntimeException`, `Error` only                   | **commit**, then rethrow                          |
+  | `dsl.transaction` | any `Throwable`                                    | rollback, rethrow wrapped in `DataAccessException` |
+
+  The jOOQ column comes from `DefaultDSLContext.transactionResult0`. With `dsl.transaction` as the outer boundary (as in v1–v3), the same code would roll back.
+- Takeaway: the same "inner failure" is either rolled back or committed, depending on which mechanism draws the boundary. Kotlin code passes checked exceptions around without anyone noticing.
+  Fix: `@Transactional(rollbackFor = [Exception::class])`, or a team-wide convention to throw only unchecked exceptions.
+
+### v7: Coroutine thread switch: the inner write escapes the transaction
+
+- Code: `v7_coroutine_thread_switch`
+- The outer `dsl.transaction` calls `publish()` through `runBlocking(Dispatchers.IO) { ... }`, then fails with `SELECT 1/0`. `OutboxService` is identical to the base case.
+- Logs (note the thread names):
+  ```
+  [Test worker]       Creating new transaction ... PROPAGATION_NESTED   -> BEGIN       txId=761, pid=72
+  [DefaultDispatcher] Creating new transaction ... PROPAGATION_NESTED   -> BEGIN (!)   txId=762, pid=73
+  [DefaultDispatcher] Committing JDBC transaction                       -> COMMIT
+  [Test worker]       Rolling back JDBC transaction                     -> ROLLBACK
+  ```
+- Result: `DataIntegrityViolationException`. The account is still `NEW`, but **1 outbox row exists**: an event for a change that never happened.
+- Why: Spring stores the transaction and its connection in a `ThreadLocal` (`TransactionSynchronizationManager`).
+  The IO thread sees no transaction, so `PROPAGATION_NESTED` starts a **new top-level transaction on a second connection** (a different `pid`) and commits it on its own.
+- Same trap: `@Async`, `CompletableFuture.supplyAsync`, `parallelStream()`, and `withContext(...)` inside a transaction.
+- Takeaway: a Spring transaction belongs to a **thread**, not to the code block it's written in. Keep transactional work on a single thread, and only start coroutines outside the boundary.
+
+### v8: SERIALIZABLE: the error shows up at COMMIT, outside any catch
+
+- Code: `v8_serializable_commit_failure`
+- Business rule: **at most one ACTIVE account**. `activate()` runs `SET TRANSACTION ISOLATION LEVEL SERIALIZABLE` as its first statement (Spring's jOOQ provider has no isolation option). It counts the ACTIVE accounts, updates, then calls `publish()`. `publish()` wraps its savepoint in try/catch, as in v3. A sleep before commit stands in for slow work.
+- The test interleaves two transactions (write skew):
+  ```
+  T1 (activate 1)                          T2 (test, activate 2)
+  BEGIN; SERIALIZABLE
+  count(ACTIVE) = 0
+  UPDATE account 1
+  SAVEPOINT; INSERT outbox; RELEASE
+  ... slow work ...                        BEGIN; SERIALIZABLE
+                                           count(ACTIVE) = 0   (T1 not committed)
+                                           UPDATE account 2
+                                           COMMIT  ✅ first committer wins
+  COMMIT  ❌ 40001
+  ```
+- Error:
+  ```
+  CannotAcquireLockException: JDBC commit; ERROR: could not serialize access due to read/write dependencies among transactions
+  Detail: Reason code: Canceled on identification as a pivot, during commit attempt.
+  Hint: The transaction might succeed if retried.
+  ```
+- Result: account 1 `NEW`, account 2 `ACTIVE`, 0 outbox rows. The rule holds and T1 is rolled back completely.
+- Why: in SERIALIZABLE (SSI), Postgres tracks read/write dependencies. Each transaction read what the other wrote, so the two form a cycle.
+  Neither statement conflicts on a row, so no statement fails. The conflict is resolved when T2 commits, which dooms T1, and Postgres reports it at **T1's COMMIT**.
+- Takeaways:
+  - Every statement succeeded, including the savepoint and the inner try/catch. The only place the failure surfaces is the **outermost** boundary.
+  - So **retry the whole outer transaction** on `40001`. Retrying inside it (an inner `@Retryable`, catching in `publish`) can't work.
+  - Spring maps this to `CannotAcquireLockException` (a `PessimisticLockingFailureException`), not to anything with "serialization" in the name. Use it as the retry trigger.
+  - Without SERIALIZABLE (READ COMMITTED, the default), both commits succeed and you end up with **two ACTIVE accounts**.
+
 ---
 
 ## 4. Summary
@@ -161,6 +233,9 @@ Each case is a package under `src/main/kotlin/.../vN_*` with a matching test und
 | v3   | `dsl.transaction` (Spring provider) | `ROLLBACK TO SAVEPOINT`      | yes, swallowed         | account ✅ outbox ❌           | ❌ (by business rule) |
 | v4   | `@Transactional` (`REQUIRED`)       | nothing, joins outer tx      | no                     | account ✅ outbox ✅           | ✅      |
 | v5   | jOOQ `DefaultTransactionProvider`   | `COMMIT` of the outer tx     | no                     | account ✅ outbox ✅ (early)   | ❌ (outer can't roll back) |
+| v6   | `@Transactional` + checked exception | nothing, joins outer tx     | yes, checked, rethrown | account ✅ outbox ✅           | ❌ (failure got committed) |
+| v7   | `dsl.transaction` on another thread | separate `BEGIN`/`COMMIT` on another connection | outer fails | account ❌ outbox ✅    | ❌ (inner escaped) |
+| v8   | `dsl.transaction`, SERIALIZABLE     | `SAVEPOINT` / `RELEASE`      | no, outer `COMMIT` fails (40001) | account ❌ outbox ❌ | ✅ (retry the outer tx) |
 
 ---
 
@@ -171,7 +246,10 @@ Each case is a package under `src/main/kotlin/.../vN_*` with a matching test und
 3. A savepoint rollback is partial on purpose. If you **catch** an inner failure, the outer transaction commits whatever is left (v3). Rethrow unless partial success is what you want.
 4. `@Transactional` defaults to `REQUIRED` (join, no savepoint), not `NESTED`. Mixing it with `dsl.transaction` works, but the semantics differ.
 5. Use **one** `TransactionProvider` per connection. A second jOOQ `DefaultTransactionProvider` can commit the Spring transaction early (v5).
-6. Don't guess. Verify with `JdbcTransactionManager` DEBUG logs and `pg_current_xact_id()` / `subxact_count`.
+6. `@Transactional` commits on checked exceptions, while `dsl.transaction` rolls back on anything. Know which one draws the boundary (v6).
+7. A Spring transaction is bound to the thread. Coroutines, `@Async` and parallel streams inside it run outside it, on another connection (v7).
+8. Under SERIALIZABLE the error can come at `COMMIT`. Handle it, and retry, at the outermost boundary only (v8).
+9. Don't guess. Verify with `JdbcTransactionManager` DEBUG logs and `pg_current_xact_id()` / `pg_backend_pid()` / `subxact_count`.
 
 ---
 

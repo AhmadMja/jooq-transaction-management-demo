@@ -18,6 +18,8 @@ class AccountService(
 
     fun changeStatus(id: Int, status: String) {
         log.info("---changeStatus: beginning of the method, before transaction block")
+        // TODO: This is a spring provider, is this sentence correct? does spring provider always use nested?
+        // TODO: What happens for this case that the transaction provider for the outer and inner transactions are different? Do they point to the same transaction? And why?
         log.info("---changeStatus: transactionProvider={}", dsl.configuration().transactionProvider().javaClass.name)
         dsl.transaction { _ ->
             log.info("---changeStatus: before calling db")
