@@ -1,4 +1,4 @@
-package com.ahmad.jooq_transaction_management_demo.v5_base_with_jooq_default_tx_provider
+package com.ahmad.jooq_transaction_management_demo.v5_checked_exception_with_annotation
 
 import com.ahmad.jooq_transaction_management_demo.TestcontainersConfiguration
 import com.ahmad.jooq_transaction_management_demo.common.AccountTable
@@ -7,10 +7,12 @@ import org.assertj.core.api.Assertions.assertThat
 import org.jooq.DSLContext
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
+import java.io.IOException
 
 @Import(TestcontainersConfiguration::class)
 @SpringBootTest
@@ -19,7 +21,7 @@ class Test {
     @Autowired
     lateinit var dsl: DSLContext
     @Autowired
-    @Qualifier("accountService_base_with_jooq_default_tx_provider")
+    @Qualifier("accountService_checked_exception_with_annotation")
     lateinit var accountService: AccountService
 
     @BeforeEach
@@ -30,16 +32,17 @@ class Test {
     }
 
     @Test
-    fun `changeStatus updates account and publishes outbox message`() {
-        accountService.changeStatus(1, "ACTIVE")
+    fun `inner transaction fails with checked exception, everything is committed`() {
+        assertThrows<IOException> {
+            accountService.changeStatus(1, "ACTIVE")
+        }
 
         val accounts = dsl.select().from(AccountTable.TABLE).fetch()
         val outboxMessages = dsl.select().from(OutboxTable.TABLE).fetch()
 
-        // Then: All are saved.
+        // Then: Caller gets an exception, but everything is saved, including the outbox row written right before the failure.
         assertThat(accounts.size).isEqualTo(1)
         assertThat(accounts[0].get(AccountTable.STATUS)).isEqualTo("ACTIVE")
         assertThat(outboxMessages.size).isEqualTo(1)
-        assertThat(outboxMessages[0].get(OutboxTable.PAYLOAD)).contains("ACTIVE")
     }
 }

@@ -21,6 +21,7 @@ class OutboxService(private val dsl: DSLContext) {
         log.info("------publish: before transaction block.")
         dsl.transactionResult { _ ->
             log.info("------publish: inside transaction block before calling db.")
+            log.info("------publish: transactionProvider={}", dsl.configuration().transactionProvider().javaClass.name)
             dsl.insertInto(TABLE)
                 .set(PAYLOAD, payload)
                 .returning(MESSAGE_ID)

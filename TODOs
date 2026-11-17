@@ -1,0 +1,4 @@
+worked until slide 9.
+
+What does it mean exactly that SpringTransactionProvider hardcodes PROPAGATION_NESTED in begin?
+How to create a dsl.transaction that uses REQUIRED transaction?

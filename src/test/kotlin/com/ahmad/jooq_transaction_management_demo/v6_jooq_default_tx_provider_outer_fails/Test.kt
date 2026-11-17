@@ -1,4 +1,4 @@
-package com.ahmad.jooq_transaction_management_demo.v6_checked_exception_with_annotation
+package com.ahmad.jooq_transaction_management_demo.v6_jooq_default_tx_provider_outer_fails
 
 import com.ahmad.jooq_transaction_management_demo.TestcontainersConfiguration
 import com.ahmad.jooq_transaction_management_demo.common.AccountTable
@@ -12,7 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
-import java.io.IOException
+import org.springframework.dao.DataIntegrityViolationException
 
 @Import(TestcontainersConfiguration::class)
 @SpringBootTest
@@ -21,7 +21,7 @@ class Test {
     @Autowired
     lateinit var dsl: DSLContext
     @Autowired
-    @Qualifier("accountService_checked_exception_with_annotation")
+    @Qualifier("accountService_jooq_default_tx_provider_outer_fails")
     lateinit var accountService: AccountService
 
     @BeforeEach
@@ -32,17 +32,19 @@ class Test {
     }
 
     @Test
-    fun `inner transaction fails with checked exception, everything is committed`() {
-        assertThrows<IOException> {
+    fun `outer transaction fails, but inner provider already committed everything`() {
+        assertThrows<DataIntegrityViolationException> {
             accountService.changeStatus(1, "ACTIVE")
         }
 
         val accounts = dsl.select().from(AccountTable.TABLE).fetch()
         val outboxMessages = dsl.select().from(OutboxTable.TABLE).fetch()
 
-        // Then: Caller gets an exception, but everything is saved, including the outbox row written right before the failure.
+        // Then: Outer transaction failed and Spring rolled back, but the rollback undid nothing.
+        // The inner DefaultTransactionProvider already committed the outer transaction's work.
         assertThat(accounts.size).isEqualTo(1)
         assertThat(accounts[0].get(AccountTable.STATUS)).isEqualTo("ACTIVE")
         assertThat(outboxMessages.size).isEqualTo(1)
+        assertThat(outboxMessages[0].get(OutboxTable.PAYLOAD)).contains("ACTIVE")
     }
 }

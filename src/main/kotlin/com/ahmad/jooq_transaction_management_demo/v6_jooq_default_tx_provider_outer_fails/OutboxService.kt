@@ -1,4 +1,4 @@
-package com.ahmad.jooq_transaction_management_demo.v5_base_with_jooq_default_tx_provider
+package com.ahmad.jooq_transaction_management_demo.v6_jooq_default_tx_provider_outer_fails
 
 import com.ahmad.jooq_transaction_management_demo.common.DslUtils.logTransactionInfo
 import com.ahmad.jooq_transaction_management_demo.common.OutboxTable.MESSAGE_ID
@@ -10,7 +10,7 @@ import org.jooq.impl.DefaultTransactionProvider
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 
-@Service("outboxService_base_with_jooq_default_tx_provider")
+@Service("outboxService_jooq_default_tx_provider_outer_fails")
 class OutboxService(
     dsl: DSLContext,
     connectionProvider: ConnectionProvider,

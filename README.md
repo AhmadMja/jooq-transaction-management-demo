@@ -127,33 +127,9 @@ Each case is a package under `src/main/kotlin/.../vN_*` with a matching test und
   - `@Transactional` uses `REQUIRED`, so the call **joins** the outer transaction and gets no savepoint.
   - So the same "nested" code can produce different SQL. Failure handling also differs: v3 relies on the savepoint for its partial rollback. With `REQUIRED` there is none: a failure marks the whole transaction rollback-only (standard Spring behaviour; this repo does not demo it).
 
-### v5: Inner block uses jOOQ's own `DefaultTransactionProvider`
+### v5: `@Transactional` + checked exception: the failure gets committed
 
-- Code: `v5_base_with_jooq_default_tx_provider`
-- `OutboxService` derives a `DSLContext` with `DefaultTransactionProvider(connectionProvider)`, which is jOOQ's native provider, nested by default.
-- Logs:
-  ```
-  Creating new transaction ... PROPAGATION_NESTED      -> BEGIN (Spring)
-  changeStatus: txId=773, subxactCount=0
-  publish: transactionProvider=org.jooq.impl.DefaultTransactionProvider
-  publish:      txId=773, subxactCount=0               (same connection, NO savepoint)
-  Committing JDBC transaction                          -> COMMIT (Spring)
-  ```
-- The test passes (account `ACTIVE`, 1 outbox row), but that is **misleading**:
-  - `DefaultTransactionProvider` keeps its savepoint stack in its *own* `Configuration`. It doesn't know Spring already opened a transaction, so it treats itself as **top-level**. It creates no savepoint and, at the end of the block, calls `connection.commit()` (see `DefaultTransactionProvider.begin/commit`).
-  - Thanks to `TransactionAwareDataSourceProxy`, that is the **same connection Spring is using**. jOOQ therefore commits the outer transaction's work halfway through.
-  - Checked with a throwaway test where the outer block throws *after* `publish()` returns:
-    ```
-    xid before publish=758, after publish=759   <- a new real transaction started
-    outer block threw -> Spring rolled back
-    final state: account=ACTIVE, outbox=1       <- the rollback undid nothing
-    ```
-    // TODO: extract this to a new case: What happens if we mix transaction providers and the outer transaction fails after the inner transaction is commited? 
-- Takeaway: **don't mix transaction providers.** The inner block silently commits the outer transaction early, and an outer rollback can no longer undo it.
-
-### v6: `@Transactional` + checked exception: the failure gets committed
-
-- Code: `v6_checked_exception_with_annotation`
+- Code: `v5_checked_exception_with_annotation`
 - `changeStatus()` and `publish()` are both `@Transactional`. `publish()` inserts, then throws `IOException`. Kotlin doesn't force anyone to declare or handle it.
 - Logs:
   ```
@@ -172,7 +148,29 @@ Each case is a package under `src/main/kotlin/.../vN_*` with a matching test und
 
   The jOOQ column comes from `DefaultDSLContext.transactionResult0`. With `dsl.transaction` as the outer boundary (as in v1–v3), the same code would roll back.
 - Takeaway: the same "inner failure" is either rolled back or committed, depending on which mechanism draws the boundary. Kotlin code passes checked exceptions around without anyone noticing.
-  Fix: `@Transactional(rollbackFor = [Exception::class])`, or a team-wide convention to throw only unchecked exceptions.
+  Fix: `@Transactional(rollbackFor = [Exception::class])`, a global `@EnableTransactionManagement(rollbackOn = RollbackOn.ALL_EXCEPTIONS)` (Spring 6.2+), or a team-wide convention to throw only unchecked exceptions.
+
+### v6: Inner block uses jOOQ's own `DefaultTransactionProvider`, then the outer transaction fails
+
+- Code: `v6_jooq_default_tx_provider_outer_fails`
+- `OutboxService` derives a `DSLContext` with `DefaultTransactionProvider(connectionProvider)`, which is jOOQ's native provider, nested by default.
+- After `publish()` returns, the outer `dsl.transaction` fails with `SELECT 1/0`, as in v7.
+- Logs:
+  ```
+  Creating new transaction ... PROPAGATION_NESTED      -> BEGIN (Spring)
+  changeStatus: txId=776, pid=72, subxactCount=0
+  publish: transactionProvider=org.jooq.impl.DefaultTransactionProvider
+  publish:      txId=776, pid=72, subxactCount=0       (same connection, NO savepoint)
+  changeStatus: txId=777, pid=72                       <- after publish: a NEW real transaction on the same connection
+  changeStatus: fail in the outer transaction
+  Rolling back JDBC transaction                        -> ROLLBACK (Spring), but there is nothing left to undo
+  ```
+- Result: `DataIntegrityViolationException`, yet the account is `ACTIVE` and 1 outbox row exists. The outer rollback undid nothing.
+- Why:
+  - `DefaultTransactionProvider` keeps its savepoint stack in its *own* `Configuration`. It doesn't know Spring already opened a transaction, so it treats itself as **top-level**. It creates no savepoint and, at the end of the block, calls `connection.commit()` (see `DefaultTransactionProvider.begin/commit`).
+  - Thanks to `TransactionAwareDataSourceProxy`, that is the **same connection Spring is using**. jOOQ therefore commits the outer transaction's work halfway through. Spring is not told, and keeps going on a fresh transaction (`txId` 776 -> 777).
+  - Without the outer failure, the happy path looks perfectly fine (account `ACTIVE`, 1 outbox row). That is why this bug survives tests.
+- Takeaway: **don't mix transaction providers.** The inner block silently commits the outer transaction early, and an outer rollback can no longer undo it.
 
 ### v7: Coroutine thread switch: the inner write escapes the transaction
 
@@ -233,8 +231,8 @@ Each case is a package under `src/main/kotlin/.../vN_*` with a matching test und
 | v2   | `dsl.transaction` (Spring provider) | `ROLLBACK TO SAVEPOINT`      | yes, rethrown          | account ❌ outbox ❌           | ✅      |
 | v3   | `dsl.transaction` (Spring provider) | `ROLLBACK TO SAVEPOINT`      | yes, swallowed         | account ✅ outbox ❌           | ❌ (by business rule) |
 | v4   | `@Transactional` (`REQUIRED`)       | nothing, joins outer tx      | no                     | account ✅ outbox ✅           | ✅      |
-| v5   | jOOQ `DefaultTransactionProvider`   | `COMMIT` of the outer tx     | no                     | account ✅ outbox ✅ (early)   | ❌ (outer can't roll back) |
-| v6   | `@Transactional` + checked exception | nothing, joins outer tx     | yes, checked, rethrown | account ✅ outbox ✅           | ❌ (failure got committed) |
+| v5   | `@Transactional` + checked exception | nothing, joins outer tx     | yes, checked, rethrown | account ✅ outbox ✅           | ❌ (failure got committed) |
+| v6   | jOOQ `DefaultTransactionProvider`   | `COMMIT` of the outer tx     | no, outer fails later  | account ✅ outbox ✅           | ❌ (outer can't roll back) |
 | v7   | `dsl.transaction` on another thread | separate `BEGIN`/`COMMIT` on another connection | outer fails | account ❌ outbox ✅    | ❌ (inner escaped) |
 | v8   | `dsl.transaction`, SERIALIZABLE     | `SAVEPOINT` / `RELEASE`      | no, outer `COMMIT` fails (40001) | account ❌ outbox ❌ | ✅ (retry the outer tx) |
 
@@ -246,8 +244,8 @@ Each case is a package under `src/main/kotlin/.../vN_*` with a matching test und
 2. With Spring Boot's auto-configured `DSLContext`, a nested `dsl.transaction` becomes a **savepoint** (`PROPAGATION_NESTED`).
 3. A savepoint rollback is partial on purpose. If you **catch** an inner failure, the outer transaction commits whatever is left (v3). Rethrow unless partial success is what you want.
 4. `@Transactional` defaults to `REQUIRED` (join, no savepoint), not `NESTED`. Mixing it with `dsl.transaction` works, but the semantics differ.
-5. Use **one** `TransactionProvider` per connection. A second jOOQ `DefaultTransactionProvider` can commit the Spring transaction early (v5).
-6. `@Transactional` commits on checked exceptions, while `dsl.transaction` rolls back on anything. Know which one draws the boundary (v6).
+5. `@Transactional` commits on checked exceptions, while `dsl.transaction` rolls back on anything. Know which one draws the boundary (v5).
+6. Use **one** `TransactionProvider` per connection. A second jOOQ `DefaultTransactionProvider` can commit the Spring transaction early (v6).
 7. A Spring transaction is bound to the thread. Coroutines, `@Async` and parallel streams inside it run outside it, on another connection (v7).
 8. Under SERIALIZABLE the error can come at `COMMIT`. Handle it, and retry, at the outermost boundary only (v8).
 9. Don't guess. Verify with `JdbcTransactionManager` DEBUG logs and `pg_current_xact_id()` / `pg_backend_pid()` / `subxact_count`.
@@ -270,4 +268,4 @@ Log levels are set in `src/main/resources/application.yaml`.
 
 - v4: make `publish()` throw and catch the exception in `changeStatus`. You should see `UnexpectedRollbackException`, because nothing can be partially rolled back without a savepoint.
 - v4: switch to `@Transactional(propagation = Propagation.NESTED)` and look for `Creating nested transaction` in the logs.
-- v5: add `throw` after `publish()` in `changeStatus` and watch the account update survive.
+- v6: remove the `SELECT 1/0` from `changeStatus`. The happy path looks correct (account `ACTIVE`, 1 outbox row), which is why this bug hides in tests.

@@ -1,4 +1,4 @@
-package com.ahmad.jooq_transaction_management_demo.v6_checked_exception_with_annotation
+package com.ahmad.jooq_transaction_management_demo.v5_checked_exception_with_annotation
 
 import com.ahmad.jooq_transaction_management_demo.common.DslUtils.logTransactionInfo
 import com.ahmad.jooq_transaction_management_demo.common.OutboxTable.MESSAGE_ID

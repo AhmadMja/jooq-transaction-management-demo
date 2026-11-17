@@ -1,0 +1,1116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nested Transactions: jOOQ × Spring × PostgreSQL</title>
+<style>
+:root {
+  --bg0: #0d1117; --ink: #e6edf3; --muted: #8b949e; --faint: #565e69;
+  --accent: #58a6ff; --violet: var(--accent); --cyan: var(--accent); --pink: var(--accent);
+  --lime: #3fb950; --amber: #d29922; --red: #f85149;
+  --glass: #161b22; --line: #30363d;
+  --k-red: #e21b3c; --k-blue: #1368ce; --k-yellow: #d89e00; --k-green: #26890c;
+  --sans: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--bg0); color: var(--ink); font-family: var(--sans); overflow: hidden;
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+#stage { position: absolute; width: 1600px; height: 900px; left: 50%; top: 50%; transform-origin: center; z-index: 1; }
+.slide {
+  position: absolute; inset: 0; padding: 70px 96px 80px; display: flex; flex-direction: column;
+  opacity: 0; pointer-events: none; transform: translateY(18px) scale(.99);
+  transition: opacity .45s ease, transform .55s cubic-bezier(.2,.8,.2,1);
+}
+.slide.active { opacity: 1; pointer-events: auto; transform: none; }
+.slide.center { justify-content: center; align-items: center; text-align: center; }
+
+/* typography */
+.eyebrow { font: 600 18px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--cyan); margin-bottom: 18px; }
+h1 { font-size: 92px; line-height: 1.02; font-weight: 800; letter-spacing: -.035em; }
+h2 { font-size: 54px; line-height: 1.08; font-weight: 750; letter-spacing: -.025em; margin-bottom: 30px; }
+h3 { font-size: 26px; font-weight: 700; margin-bottom: 14px; letter-spacing: -.01em; }
+p, li { font-size: 25px; line-height: 1.5; color: #c9d1d9; }
+.lead { font-size: 30px; color: var(--muted); max-width: 1150px; }
+.grad { color: var(--accent); }
+.muted { color: var(--muted); } .small { font-size: 20px; }
+code, .mono { font-family: var(--mono); font-size: .88em; }
+:not(pre) > code { background: rgba(110,118,129,.2); color: #e6edf3; padding: 2px 8px; border-radius: 6px; }
+b, strong { color: #fff; }
+ul.clean { list-style: none; } ul.clean li { padding-left: 34px; position: relative; margin: 8px 0; }
+ul.clean li::before { content: "–"; position: absolute; left: 6px; color: var(--faint); font-weight: 700; }
+
+/* layout */
+.row { display: flex; gap: 36px; } .col { flex: 1; min-width: 0; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px; }
+.card { background: var(--glass); border: 1px solid var(--line); border-radius: 14px; padding: 26px 30px; }
+.card.accent { border-color: var(--accent); }
+.card.warn { border-left: 3px solid var(--red); }
+.card.rule { border: 1px solid var(--line); border-left: 4px solid var(--accent); }
+.card.rule p { font-size: 27px; color: #fff; font-weight: 600; }
+.deeper { border-left: 3px solid var(--line); padding: 4px 0 4px 22px; }
+.deeper .eyebrow { color: var(--muted); margin-bottom: 10px; font-size: 15px; }
+.deeper p, .deeper li { font-size: 21px; }
+.spacer { flex: 1; }
+
+/* top meta */
+.meta { position: absolute; top: 30px; left: 96px; right: 96px; display: flex; justify-content: space-between; font: 500 16px var(--mono); color: var(--faint); letter-spacing: .08em; }
+.badge { display: inline-flex; align-items: center; gap: 10px; font: 600 18px var(--mono); padding: 8px 16px; border-radius: 999px; background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.badge.case { color: var(--accent); border-color: var(--accent); }
+
+/* code */
+pre { font: 400 21px/1.55 var(--mono); background: #010409; border: 1px solid var(--line); border-radius: 18px; padding: 22px 0; overflow: hidden; }
+pre .ln { display: block; padding: 0 26px; border-left: 3px solid transparent; white-space: pre; }
+pre .ln.hl { background: rgba(88,166,255,.12); border-left-color: var(--accent); }
+pre .ln.dim { opacity: .45; }
+.tk-kw { color: #ff7b72; } .tk-str { color: #a5d6ff; } .tk-com { color: #6e7681; font-style: italic; } .tk-ann { color: #ff7b72; }
+.tk-num { color: #a5d6ff; } .tk-fn { color: inherit; } .tk-ty { color: inherit; }
+.file { font: 600 15px var(--mono); color: var(--faint); letter-spacing: .02em; margin: 0 0 8px 4px; }
+
+/* quiz */
+.question { font-size: 40px; font-weight: 750; letter-spacing: -.02em; line-height: 1.2; margin: 6px 0 24px; }
+.options { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.opt { display: flex; align-items: center; gap: 18px; padding: 20px 24px; border-radius: 14px; font-size: 23px; font-weight: 650; color: #fff; line-height: 1.3;
+  transition: opacity .4s, transform .4s, filter .4s, box-shadow .4s; position: relative; min-height: 88px; }
+.opt .txt { flex: 1; min-width: 0; }
+.opt .shape { font-size: 26px; width: 34px; text-align: center; flex: none; }
+.opt:nth-child(1) { background: var(--k-red); } .opt:nth-child(2) { background: var(--k-blue); }
+.opt:nth-child(3) { background: var(--k-yellow); } .opt:nth-child(4) { background: var(--k-green); }
+.opt code { background: rgba(0,0,0,.25) !important; color: #fff !important; }
+.revealed .opt:not(.correct) { opacity: .22; filter: grayscale(.8); transform: scale(.97); }
+.revealed .opt.correct { transform: scale(1.03); box-shadow: 0 0 0 4px #fff; }
+.revealed .opt.correct::after { content: "✓"; position: absolute; right: 22px; font-size: 36px; font-weight: 900; }
+.qz { display: flex; gap: 40px; flex: 1; min-height: 0; }
+.qz .code { width: 900px; flex: none; }
+.qz pre { font-size: 16px; line-height: 1.5; padding: 18px 0; }
+.qz pre .ln { padding: 0 22px; }
+.qz .question { font-size: 34px; }
+.tk li, .tk p { font-size: 20px; line-height: 1.45; }
+.tk ul.clean li { margin: 6px 0; }
+.tk .card { padding: 20px 24px; }
+.tk .card.rule p { font-size: 23px; }
+.tk .deeper p { font-size: 18px; }
+.tk .tl { font-size: 18px; }
+.tk .tl .ev { grid-template-columns: 230px 1fr; padding: 5px 0; }
+.tk .tl .log { font-size: 16px; }
+.tk table { font-size: 18px; } .tk td { padding: 8px 10px; }
+.qz .quiz { flex: 1; display: flex; flex-direction: column; }
+.qz .options { grid-template-columns: 1fr; gap: 13px; }
+.qz .opt { min-height: 76px; font-size: 21px; padding: 16px 22px; }
+.head { display: flex; align-items: center; gap: 14px; margin: 14px 0 22px; }
+.tk { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; flex: 1; min-height: 0; }
+.tk .left, .tk .right { display: flex; flex-direction: column; gap: 20px; min-height: 0; }
+.tk h2 { font-size: 44px; margin-bottom: 0; }
+.tk .right h3 { font-weight: 600; }
+.tk .right p, .tk .right li { font-weight: 400; }
+.tk .right b, .tk .right strong { font-weight: 600; }
+.tk .right .card.rule p { font-weight: 500; }
+.quiz-hint { font: 500 15px var(--mono); color: var(--faint); margin-top: 16px; letter-spacing: .06em; }
+
+/* timer */
+#timer { position: fixed; top: 22px; right: 26px; width: 96px; height: 96px; z-index: 5; opacity: 0; transition: opacity .3s; }
+#timer.on { opacity: 1; }
+#timer svg { transform: rotate(-90deg); }
+#timer .num { position: absolute; inset: 0; display: grid; place-items: center; font: 800 34px var(--mono); }
+
+/* timeline (SQL) */
+.tl { font: 500 20px/1.45 var(--mono); }
+.tl .ev { display: grid; grid-template-columns: 250px 1fr; gap: 18px; align-items: baseline; padding: 6px 0; border-bottom: 1px dashed rgba(255,255,255,.06); }
+.tl .sql { font-weight: 700; color: var(--ink); }
+.tl .sql.bad { color: var(--red); } .tl .sql.ok { color: var(--lime); } .tl .sql.sp { color: var(--pink); } .tl .sql.none { color: var(--faint); }
+.tl .log { color: var(--muted); font-size: 17px; }
+.tl .log em { color: var(--ink); font-style: normal; }
+.tl .ev.t2 .sql { color: var(--accent); }
+
+/* result chips */
+.result { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 4px; }
+.chip { font: 600 19px var(--mono); padding: 8px 14px; border-radius: 10px; background: var(--glass); border: 1px solid var(--line); }
+.chip.y { color: var(--lime); border-color: rgba(163,230,53,.35); } .chip.n { color: var(--red); border-color: rgba(248,113,113,.35); }
+.chip.x { color: var(--amber); border-color: rgba(251,191,36,.35); }
+
+/* tables */
+table { width: 100%; border-collapse: collapse; font-size: 20px; }
+th { text-align: left; font: 600 15px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--line); }
+td { padding: 11px 12px; border-bottom: 1px solid rgba(255,255,255,.05); color: #c9d1d9; vertical-align: top; }
+td code { font-size: 17px; }
+
+/* part divider */
+.part-num { font: 800 220px/1 var(--sans); letter-spacing: -.06em; opacity: .06; position: absolute; right: 80px; bottom: 30px; }
+.chapter-list { display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px; margin-top: 46px; text-align: left; }
+.chapter-list .card .eyebrow { margin-bottom: 10px; }
+.chapter-list .card p { font-size: 21px; }
+
+/* chrome */
+#progress { position: fixed; left: 0; bottom: 0; height: 3px; background: var(--accent); z-index: 5; transition: width .4s; }
+#counter { position: fixed; right: 26px; bottom: 16px; font: 500 14px var(--mono); color: var(--faint); z-index: 5; }
+#notes { position: fixed; left: 24px; right: 24px; bottom: 24px; max-height: 42vh; overflow: auto; z-index: 6; background: #161b22;
+  border: 1px solid var(--line); border-radius: 16px; padding: 20px 26px; font-size: 17px; line-height: 1.55; color: #cbd2f0; display: none; }
+#notes.on { display: block; }
+#notes h4 { font: 600 13px var(--mono); letter-spacing: .14em; color: var(--pink); margin-bottom: 8px; }
+#notes li { font-size: 17px; margin-left: 20px; }
+aside.notes { display: none; }
+#help { position: fixed; left: 26px; bottom: 14px; font: 500 13px var(--mono); color: var(--faint); z-index: 5; opacity: .7; }
+</style>
+</head>
+<body>
+<div id="stage">
+<!-- ============ 1. TITLE ============ -->
+<section class="slide center">
+  <div class="eyebrow">jOOQ 3.21 · Spring Boot 4.1 · PostgreSQL 18</div>
+  <h1>What does <span class="grad">“nested”</span><br>actually commit?</h1>
+  <div class="row" style="margin-top:50px;gap:16px;justify-content:center">
+    <span class="badge case">8 quizzes</span><span class="badge case">real logs</span><span class="badge case">real Postgres</span>
+  </div>
+  <aside class="notes"><ul>
+    <li>Open Kahoot, share the PIN now.</li>
+    <li>Rule of the game: every quiz runs against the same scenario. Only one thing changes per round.</li>
+  </ul></aside>
+</section>
+
+<!-- ============ 2. SCENARIO ============ -->
+<section class="slide">
+  <div class="eyebrow">The scenario</div>
+  <h2>One business operation. Two writes. <span class="grad">All or nothing.</span></h2>
+  <div class="row" style="align-items:flex-start">
+    <div class="col">
+      <pre data-code data-hl="2,3,4,5,9,10" style="font-size:19px">
+fun changeStatus(id: Int, status: String) {   // outer
+    dsl.transaction { _ ->
+        dsl.update(ACCOUNT).set(STATUS, status)
+            .where(ID.eq(id)).execute()
+        outboxService.publish("accountId: $id changed status to $status")
+    }
+}
+
+fun publish(payload: String) {                // "inner"
+    dsl.transactionResult { _ ->
+        dsl.insertInto(OUTBOX).set(PAYLOAD, payload).execute()
+    }
+}</pre>
+    </div>
+    <div style="width:380px" class="card accent">
+      <h3>The invariant: Atomic Tx</h3>
+      <p>Account status changes <b>if and only if</b> an outbox event is written.</p>
+    </div>
+  </div>
+  <aside class="notes"><ul>
+    <li>The question for the whole session: what happens when a transaction opens inside another one?</li>
+    <li>No spring tricks. No beans trick. The code is simple as you see it.</li>
+    <li>Open the code.</li>
+    <li>Review the domain.</li>
+  </ul></aside>
+</section>
+
+<!-- ============ 3. PG PRIMER ============ -->
+<section class="slide">
+  <div class="eyebrow">Ground truth</div>
+  <h2>PostgreSQL has <span class="grad">no nested transactions</span></h2>
+  <div class="row">
+    <div class="col">
+      <table>
+        <tr><th>SQL</th><th>Meaning</th></tr>
+        <tr><td><code>BEGIN</code> / <code>COMMIT</code> / <code>ROLLBACK</code></td><td>the one real, top-level transaction</td></tr>
+        <tr><td><code>SAVEPOINT sp</code></td><td>a mark inside the current transaction</td></tr>
+        <tr><td><code>RELEASE SAVEPOINT sp</code></td><td>“inner commit”: keeps the work, <b>still uncommitted</b></td></tr>
+        <tr><td><code>ROLLBACK TO SAVEPOINT sp</code></td><td>“inner rollback”: undoes only the work after <code>sp</code></td></tr>
+      </table>
+    </div>
+    <div style="width:520px;display:flex;flex-direction:column;gap:22px">
+      <div class="card warn">
+        <h3>After any error</h3>
+        <p class="small">The transaction is <b>aborted</b>. Every next statement fails with <code>current transaction is aborted</code>.<br>Only <code>ROLLBACK TO SAVEPOINT</code> brings it back.</p>
+      </div>
+      <div class="card rule"><p>Any Java “nested transaction” ends up as one of: a <b>savepoint</b>, a <b>join</b>, or a <b>second real transaction</b>.</p></div>
+    </div>
+  </div>
+  <aside class="notes"><ul>
+    <li>Keep the three outcomes in mind. Every quiz answer is one of them.</li>
+    <li>The aborted state matters later (v2, v3): it is why the savepoint exists at all.</li>
+  </ul></aside>
+</section>
+
+<!-- ============ 4. EVIDENCE ============ -->
+<section class="slide">
+  <div class="eyebrow">How we know, not guess</div>
+  <h2>Two sources of evidence</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>Spring’s view</h3>
+      <p class="small muted" style="margin-bottom:14px"><code>JdbcTransactionManager: DEBUG</code></p>
+      <div class="tl">
+        <div class="ev"><span class="sql">BEGIN</span><span class="log">Creating new transaction</span></div>
+        <div class="ev"><span class="sql sp">SAVEPOINT</span><span class="log">Creating nested transaction</span></div>
+        <div class="ev"><span class="sql none">— (join)</span><span class="log">Participating in existing transaction</span></div>
+        <div class="ev"><span class="sql sp">RELEASE</span><span class="log">Releasing transaction savepoint</span></div>
+        <div class="ev"><span class="sql sp">ROLLBACK TO</span><span class="log">Rolling back transaction to savepoint</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Postgres’ view</h3>
+      <p class="small muted" style="margin-bottom:14px"><code>DslUtils.logTransactionInfo()</code></p>
+      <ul class="clean">
+        <li><code>txId</code> = <code>pg_current_xact_id()</code><br><span class="small muted">savepoints share it. <b>New id = new real transaction.</b></span></li>
+        <li><code>pid</code> = <code>pg_backend_pid()</code><br><span class="small muted">which physical connection.</span></li>
+        <li><code>subxactCount</code><br><span class="small muted">&gt; 0 means we are inside a savepoint that wrote.</span></li>
+      </ul>
+    </div>
+  </div>
+  <aside class="notes"><ul>
+    <li>Spring's logs tell what Spring <i>thinks</i>. Postgres tells what actually happened. In v6 these two disagree.</li>
+    <li><code>subxact_count</code> comes from <code>pg_stat_get_backend_subxact</code> (PG16+). Released savepoints still count until the top-level tx ends.</li>
+  </ul></aside>
+</section>
+
+<!-- ============ 5. MAP ============ -->
+<section class="slide">
+  <div class="eyebrow">The route</div>
+  <h2>Four questions, eight rounds</h2>
+  <div class="chapter-list" style="margin-top:10px">
+    <div class="card"><div class="eyebrow">Part 1 · v1–v3</div><h3>Savepoints work</h3><p class="muted">What does “nested” mean on PG, and who decides what gets committed?</p></div>
+    <div class="card"><div class="eyebrow">Part 2 · v4–v5</div><h3>Two boundaries</h3><p class="muted"><code>dsl.transaction</code> and <code>@Transactional</code> look alike. Their rules differ.</p></div>
+    <div class="card"><div class="eyebrow">Part 3 · v6–v7</div><h3>Who owns the tx?</h3><p class="muted">One connection, two owners. One owner, two connections.</p></div>
+    <div class="card"><div class="eyebrow">Part 4 · v8</div><h3>Correct code still fails</h3><p class="muted">The error arrives at <code>COMMIT</code>, outside every catch.</p></div>
+  </div>
+
+  <aside class="notes"><ul>
+    <li>Point out option ● (account not updated, but event published). It looks impossible. Keep it in mind.</li>
+  </ul></aside>
+</section>
+
+<!-- ============ PART 1 ============ -->
+<section class="slide center">
+  <div class="eyebrow">Part 1</div>
+  <h1>Savepoints <span class="grad">work</span></h1>
+  <p class="lead" style="margin-top:26px">We start with the happy path, break it, and then “handle” the break.</p>
+  <div class="part-num">01</div>
+</section>
+
+<!-- ============ v1 QUIZ ============ -->
+<section class="slide">
+  <div class="meta"><span>PART 1 · SAVEPOINTS WORK</span><span>ROUND 1 / 8</span></div>
+  <div class="head"><span class="badge case">v1 · base</span></div>
+  <div class="qz">
+    <div class="code">
+      <div class="file">AccountService.kt</div>
+      <pre data-code data-hl="2,5">
+fun changeStatus(id: Int, status: String) {
+    dsl.transaction { _ ->
+        dsl.update(ACCOUNT).set(STATUS, status)
+            .where(ID.eq(id)).execute()
+        outboxService.publish("accountId: $id changed status to $status")
+    }
+}</pre>
+      <div class="file" style="margin-top:18px">OutboxService.kt</div>
+      <pre data-code data-hl="2">
+fun publish(payload: String) {
+    dsl.transactionResult { _ ->       // same Spring-managed DSLContext
+        dsl.insertInto(OUTBOX).set(PAYLOAD, payload)
+            .returning(MESSAGE_ID).fetchOne(MESSAGE_ID)!!
+    }
+}</pre>
+    </div>
+    <div class="quiz">
+      <div class="question">What does the inner <code>dsl.transactionResult</code> send to Postgres?</div>
+      <div class="options">
+        <div class="opt"><span class="shape">▲</span><span class="txt">Nothing. It joins the outer transaction</span></div>
+        <div class="opt correct"><span class="shape">◆</span><span class="txt"><code>SAVEPOINT</code> … <code>RELEASE SAVEPOINT</code></span></div>
+        <div class="opt"><span class="shape">●</span><span class="txt"><code>BEGIN</code> … <code>COMMIT</code> on the same connection</span></div>
+        <div class="opt"><span class="shape">■</span><span class="txt">A second connection with its own <code>BEGIN</code> … <code>COMMIT</code></span></div>
+      </div>
+      <div class="quiz-hint">T · start 20s &nbsp;&nbsp; R · reveal</div>
+    </div>
+  </div>
+  <aside class="notes"><ul>
+    <li>Final state is boring (both saved). The interesting part is <i>what SQL</i> the inner block produces.</li>
+    <li>Expect split votes between ▲ and ◆. People who know Spring's <code>@Transactional</code> default pick ▲.</li>
+    <li>Answer: ◆ savepoint.</li>
+  </ul></aside>
+</section>
+
+<!-- ============ v1 TAKEAWAY ============ -->
+<section class="slide">
+  <div class="meta"><span>PART 1 · SAVEPOINTS WORK</span><span>v1 · TAKEAWAY</span></div>
+  <div class="head"><span class="badge case">v1 · base</span></div>
+  <div class="tk">
+    <div class="left">
+      <h2>A nested <code>dsl.transaction</code> <span class="grad">is a savepoint</span></h2>
+      <div class="card">
+        <div class="tl">
+          <div class="ev"><span class="sql">BEGIN</span><span class="log">PROPAGATION_NESTED · <em>txId=758 pid=72 subxact=0</em></span></div>
+          <div class="ev"><span class="sql">UPDATE account</span><span class="log"></span></div>
+          <div class="ev"><span class="sql sp">SAVEPOINT</span><span class="log">Creating nested transaction</span></div>
+          <div class="ev"><span class="sql">INSERT outbox</span><span class="log"><em>txId=758 pid=72 subxact=1</em></span></div>
+          <div class="ev"><span class="sql sp">RELEASE</span><span class="log">Releasing transaction savepoint</span></div>
+          <div class="ev"><span class="sql ok">COMMIT</span><span class="log">Committing JDBC transaction</span></div>
+        </div>
+      </div>
+      <div class="result"><span class="chip y">account ACTIVE</span><span class="chip y">outbox 1 row</span><span class="chip">same txId · same pid</span></div>
+    </div>
+    <div class="right">
+      <div class="card">
+        <h3>Why</h3>
+        <ul class="clean">
+          <li>Spring Boot builds the <code>DSLContext</code> with <code>SpringTransactionProvider</code>.</li>
+          <li>Every <code>dsl.transaction</code> becomes a Spring transaction with <b><code>PROPAGATION_NESTED</code></b>, hard-coded.</li>
+          <li><code>JdbcTransactionManager</code> sees an existing tx and calls <code>Connection.setSavepoint()</code>.</li>
+        </ul>
+      </div>
+      <div class="deeper">
+        <div class="eyebrow">Deeper</div>
+        <p>A savepoint is a PG <b>subtransaction</b>. It gets its own subxid once it writes. Each backend caches 64 subxids. Past that, there is a known performance cliff on busy primaries and replicas. <b>Savepoints in a loop are not free.</b></p>
+      </div>
+      <div class="card rule"><p>“Nested” in jOOQ + Spring Boot means a savepoint, not a new transaction.</p></div>
+    </div>
+  </div>
+  <aside class="notes"><ul>
+    <li>Show that <code>txId</code> stays 758 and <code>subxactCount</code> goes 0 → 1. That's Postgres confirming the savepoint.</li>
+    <li>Called standalone, the same <code>publish()</code> produces a plain BEGIN/COMMIT.</li>
+    <li>Show how SpringTransactionProvider wires begin with hardcoded PROPAGATION_NESTED</li>
+  </ul></aside>
+</section>
+
+<!-- ============ v2 QUIZ ============ -->
+<section class="slide">
+  <div class="meta"><span>PART 1 · SAVEPOINTS WORK</span><span>ROUND 2 / 8</span></div>
+  <div class="head"><span class="badge case">v2 · inner fails</span></div>
+  <div class="qz">
+    <div class="code">
+      <div class="file">AccountService.kt (unchanged)</div>
+      <pre data-code data-dim="1,2,3,4,5,6,7">
+fun changeStatus(id: Int, status: String) {
+    dsl.transaction { _ ->
+        dsl.update(ACCOUNT).set(STATUS, status)
+            .where(ID.eq(id)).execute()
+        outboxService.publish("accountId: $id changed status to $status")
+    }
+}</pre>
+      <div class="file" style="margin-top:18px">OutboxService.kt</div>
+      <pre data-code data-hl="5">
+fun publish(payload: String) {
+    dsl.transactionResult { _ ->
+        dsl.insertInto(OUTBOX).set(PAYLOAD, payload)
+            .returning(MESSAGE_ID).fetchOne(MESSAGE_ID)!!
+        dsl.execute("SELECT 1/0")      // division_by_zero
+    }
+}</pre>
+    </div>
+    <div class="quiz">
+      <div class="question">What ends up in the database?</div>
+      <div class="options">
+        <div class="opt"><span class="shape">▲</span><span class="txt">Account updated, message published</span></div>
+        <div class="opt"><span class="shape">◆</span><span class="txt">Account updated, message <u>not</u> published</span></div>
+        <div class="opt"><span class="shape">●</span><span class="txt">Account <u>not</u> updated, message published</span></div>
+        <div class="opt correct"><span class="shape">■</span><span class="txt">Nothing saved</span></div>
+      </div>
+      <div class="quiz-hint">T · start 20s &nbsp;&nbsp; R · reveal</div>
+    </div>
+  </div>
+  <aside class="notes"><ul>
+    <li>Distractor ◆: "the savepoint isolates the failure, so the outer part survives". Half true.</li>
+    <li>Answer: ■. Caller gets <code>DataIntegrityViolationException</code>.</li>
+  </ul></aside>
+</section>
+
+<!-- ============ v2 TAKEAWAY ============ -->
+<section class="slide">
+  <div class="meta"><span>PART 1 · SAVEPOINTS WORK</span><span>v2 · TAKEAWAY</span></div>
+  <div class="head"><span class="badge case">v2 · inner fails</span></div>
+  <div class="tk">
+    <div class="left">
+      <h2>The savepoint undoes the inner part. <span class="grad">The exception undoes the rest.</span></h2>
+      <div class="card">
+        <div class="tl">
+          <div class="ev"><span class="sql">BEGIN</span><span class="log"><em>txId=762 pid=72</em></span></div>
+          <div class="ev"><span class="sql">UPDATE account</span><span class="log"></span></div>
+          <div class="ev"><span class="sql sp">SAVEPOINT</span><span class="log"><em>subxact=1</em></span></div>
+          <div class="ev"><span class="sql">INSERT outbox</span><span class="log"></span></div>
+          <div class="ev"><span class="sql bad">SELECT 1/0 ✖</span><span class="log">22012 division_by_zero</span></div>
+          <div class="ev"><span class="sql sp">ROLLBACK TO</span><span class="log">Rolling back transaction to savepoint</span></div>
+          <div class="ev"><span class="sql bad">ROLLBACK</span><span class="log">exception reached the outer block</span></div>
+        </div>
+      </div>
+      <div class="result"><span class="chip n">account NEW</span><span class="chip n">outbox 0 rows</span><span class="chip x">DataIntegrityViolationException</span></div>
+    </div>
+    <div class="right">
+      <div class="card">
+        <h3>Why</h3>
+        <ul class="clean">
+          <li>Inner block fails → <code>SpringTransactionProvider.rollback</code> → <code>ROLLBACK TO SAVEPOINT</code>.</li>
+          <li>jOOQ rethrows. The outer lambda doesn't catch → full <code>ROLLBACK</code>.</li>
+          <li>Two rollbacks, two layers. Each one does its own job.</li>
+        </ul>
+      </div>
+      <div class="deeper">
+        <div class="eyebrow">Deeper</div>
+        <p>Why roll back to the savepoint if the outer rolls back anyway? After an error PG is in the <b>aborted</b> state. The savepoint rollback is what makes the outer transaction usable again. That matters in the next round.</p>
+      </div>
+      <div class="card rule"><p>Atomicity holds as long as the exception keeps propagating.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ v3 QUIZ ============ -->
+<section class="slide">
+  <div class="meta"><span>PART 1 · SAVEPOINTS WORK</span><span>ROUND 3 / 8</span></div>
+  <div class="head"><span class="badge case">v3 · exception caught</span></div>
+  <div class="qz">
+    <div class="code">
+      <div class="file">AccountService.kt (unchanged)</div>
+      <pre data-code data-dim="1,2,3,4,5,6,7">
+fun changeStatus(id: Int, status: String) {
+    dsl.transaction { _ ->
+        dsl.update(ACCOUNT).set(STATUS, status)
+            .where(ID.eq(id)).execute()
+        outboxService.publish("accountId: $id changed status to $status")
+    }
+}</pre>
+      <div class="file" style="margin-top:18px">OutboxService.kt</div>
+      <pre data-code data-hl="2,8,9,10">
+fun publish(payload: String) {
+    try {
+        dsl.transactionResult { _ ->
+            dsl.insertInto(OUTBOX).set(PAYLOAD, payload)
+                .returning(MESSAGE_ID).fetchOne(MESSAGE_ID)!!
+            dsl.execute("SELECT 1/0")
+        }
+    } catch (e: Exception) {
+        log.info("Handled exception occurred while executing insert into table")
+    }
+}</pre>
+    </div>
+    <div class="quiz">
+      <div class="question">What ends up in the database?</div>
+      <div class="options">
+        <div class="opt"><span class="shape">▲</span><span class="txt">Account updated, message published</span></div>
+        <div class="opt correct"><span class="shape">◆</span><span class="txt">Account updated, message <u>not</u> published</span></div>
+        <div class="opt"><span class="shape">●</span><span class="txt">Account <u>not</u> updated, message published</span></div>
+        <div class="opt"><span class="shape">■</span><span class="txt">Nothing saved</span></div>
+      </div>
+      <div class="quiz-hint">T · start 20s &nbsp;&nbsp; R · reveal</div>
+    </div>
+  </div>
+  <aside class="notes"><ul>
+    <li>Distractor ■: "the transaction is aborted after the error, so the commit must fail". That's true without a savepoint.</li>
+    <li>Answer: ◆. No exception reaches the caller.</li>
+  </ul></aside>
+</section>
+
+<!-- ============ v3 TAKEAWAY ============ -->
+<section class="slide">
+  <div class="meta"><span>PART 1 · SAVEPOINTS WORK</span><span>v3 · TAKEAWAY</span></div>
+  <div class="head"><span class="badge case">v3 · exception caught</span></div>
+  <div class="tk">
+    <div class="left">
+      <h2>The savepoint did its job. <span class="grad">The catch broke the business rule.</span></h2>
+      <div class="card">
+        <div class="tl">
+          <div class="ev"><span class="sql">BEGIN</span><span class="log"><em>txId=766 pid=72</em></span></div>
+          <div class="ev"><span class="sql">UPDATE account</span><span class="log"></span></div>
+          <div class="ev"><span class="sql sp">SAVEPOINT</span><span class="log"><em>subxact=1</em></span></div>
+          <div class="ev"><span class="sql">INSERT outbox</span><span class="log"></span></div>
+          <div class="ev"><span class="sql bad">SELECT 1/0 ✖</span><span class="log"></span></div>
+          <div class="ev"><span class="sql sp">ROLLBACK TO</span><span class="log">transaction is healthy again</span></div>
+          <div class="ev"><span class="sql none">— catch</span><span class="log">Handled exception occurred…</span></div>
+          <div class="ev"><span class="sql ok">COMMIT</span><span class="log">Committing JDBC transaction</span></div>
+        </div>
+      </div>
+      <div class="result"><span class="chip y">account ACTIVE</span><span class="chip n">outbox 0 rows</span><span class="chip">no exception</span></div>
+    </div>
+    <div class="right">
+      <div class="card">
+        <h3>Why</h3>
+        <ul class="clean">
+          <li>Partial rollback is the <b>feature</b> of a savepoint.</li>
+          <li>The outer block never learns that the inner one failed, so it commits what is left.</li>
+          <li>Technically consistent. Wrong for the business: a status change with no event.</li>
+        </ul>
+      </div>
+<!--      <div class="deeper">-->
+<!--        <div class="eyebrow">Deeper</div>-->
+<!--        <p>Without the savepoint, this catch would not even “work”: the next statement, or the <code>COMMIT</code>, would hit <code>Aborted Tx</code>. The savepoint is what turns “swallow the exception” into a silent partial commit.</p>-->
+<!--      </div>-->
+      <div class="card rule"><p>Catching an inner failure means choosing a partial commit. Rethrow, unless partial success is a business decision.</p></div>
+    </div>
+  </div>
+  <aside class="notes"><ul>
+    <li>End of Part 1: the mechanism is fine. Your exception handling defines the semantics.</li>
+    <li>Bridge: so far everything used <code>dsl.transaction</code>. What if the inner boundary uses the other tool we have?</li>
+  </ul></aside>
+</section>
+
+<!-- ============ PART 2 ============ -->
+<section class="slide center">
+  <div class="eyebrow">Part 2</div>
+  <h1>Two ways to draw<br>a <span class="grad">boundary</span></h1>
+  <p class="lead" style="margin-top:26px"><code>dsl.transaction { }</code> and <code>@Transactional</code> both go through the same <code>JdbcTransactionManager</code>.<br>Same machinery. Are the rules the same?</p>
+  <div class="part-num">02</div>
+</section>
+
+<!-- ============ v4 QUIZ ============ -->
+<section class="slide">
+  <div class="meta"><span>PART 2 · TWO BOUNDARIES</span><span>ROUND 4 / 8</span></div>
+  <div class="head"><span class="badge case">v4 · annotation</span></div>
+  <div class="qz">
+    <div class="code">
+      <div class="file">AccountService.kt (unchanged)</div>
+      <pre data-code data-dim="1,2,3,4,5,6,7">
+fun changeStatus(id: Int, status: String) {
+    dsl.transaction { _ ->
+        dsl.update(ACCOUNT).set(STATUS, status)
+            .where(ID.eq(id)).execute()
+        outboxService.publish("accountId: $id changed status to $status")
+    }
+}</pre>
+      <div class="file" style="margin-top:18px">OutboxService.kt</div>
+      <pre data-code data-hl="1,2">
+@Transactional
+fun publish(payload: String) {
+    dsl.insertInto(OUTBOX).set(PAYLOAD, payload)
+        .returning(MESSAGE_ID).fetchOne(MESSAGE_ID)!!
+}</pre>
+    </div>
+    <div class="quiz">
+      <div class="question">What does the inner <code>@Transactional publish()</code> send to Postgres?</div>
+      <div class="options">
+        <div class="opt correct"><span class="shape">▲</span><span class="txt">Nothing. It joins the outer transaction</span></div>
+        <div class="opt"><span class="shape">◆</span><span class="txt"><code>SAVEPOINT</code> … <code>RELEASE SAVEPOINT</code></span></div>
+        <div class="opt"><span class="shape">●</span><span class="txt"><code>BEGIN</code> … <code>COMMIT</code> on the same connection</span></div>
+        <div class="opt"><span class="shape">■</span><span class="txt">A second connection with its own <code>BEGIN</code> … <code>COMMIT</code></span></div>
+      </div>
+      <div class="quiz-hint">T · start 20s &nbsp;&nbsp; R · reveal</div>
+    </div>
+  </div>
+  <aside class="notes"><ul>
+    <li>Same four answers as round 1, on purpose. Round 1 was ◆.</li>
+    <li>Answer: ▲ join. Both rows saved.</li>
+  </ul></aside>
+</section>
+
+<!-- ============ v4 TAKEAWAY ============ -->
+<section class="slide">
+  <div class="meta"><span>PART 2 · TWO BOUNDARIES</span><span>v4 · TAKEAWAY</span></div>
+  <div class="head"><span class="badge case">v4 · annotation</span></div>
+  <div class="tk">
+    <div class="left">
+      <h2>Same code shape. <span class="grad">Different SQL.</span></h2>
+      <div class="card">
+        <div class="tl">
+          <div class="ev"><span class="sql">BEGIN</span><span class="log">PROPAGATION_NESTED · <em>txId=770 subxact=0</em></span></div>
+          <div class="ev"><span class="sql">UPDATE account</span><span class="log"></span></div>
+          <div class="ev"><span class="sql none">— (join)</span><span class="log">Participating in existing transaction</span></div>
+          <div class="ev"><span class="sql">INSERT outbox</span><span class="log"><em>txId=770 subxact=0</em> ← no savepoint</span></div>
+          <div class="ev"><span class="sql ok">COMMIT</span><span class="log"></span></div>
+        </div>
+      </div>
+      <table style="margin-top:4px">
+        <tr><th>Boundary</th><th>Propagation</th><th>Inside a tx</th></tr>
+        <tr><td><code>dsl.transaction</code></td><td><code>NESTED</code> (hard-coded)</td><td>savepoint</td></tr>
+        <tr><td><code>@Transactional</code></td><td><code>REQUIRED</code> (default)</td><td>join</td></tr>
+      </table>
+    </div>
+    <div class="right">
+      <div class="card">
+        <h3>Why it matters</h3>
+        <ul class="clean">
+          <li>They mix fine: one transaction manager, one connection, one tx.</li>
+          <li>But failure handling is different. v3 relied on a savepoint to partially roll back. Here there is none.</li>
+        </ul>
+      </div>
+      <div class="deeper">
+        <div class="eyebrow">Deeper</div>
+        <p>With <code>REQUIRED</code>, a <code>RuntimeException</code> leaving the inner proxy marks the shared tx <b>rollback-only</b>. If the outer code catches it and tries to commit, you get <code>UnexpectedRollbackException</code>. That's the opposite of v3.</p>
+        <p style="margin-top:10px">Want the savepoint? <code>@Transactional(propagation = NESTED)</code>.</p>
+      </div>
+      <div class="card rule"><p>“Nested” is not about how the code looks. It's the propagation.</p></div>
+    </div>
+  </div>
+  <aside class="notes"><ul>
+    <li>Live demo idea: switch to <code>propagation = Propagation.NESTED</code> and look for "Creating nested transaction".</li>
+    <li>Bridge: both boundaries agree on success. Do they agree on failure?</li>
+  </ul></aside>
+</section>
+
+<!-- ============ v5 QUIZ ============ -->
+<section class="slide">
+  <div class="meta"><span>PART 2 · TWO BOUNDARIES</span><span>ROUND 5 / 8</span></div>
+  <div class="head"><span class="badge case">v5 · checked exception</span></div>
+  <div class="qz">
+    <div class="code">
+      <div class="file">AccountService.kt</div>
+      <pre data-code data-hl="1">
+@Transactional
+fun changeStatus(id: Int, status: String) {
+    dsl.update(ACCOUNT).set(STATUS, status)
+        .where(ID.eq(id)).execute()
+    outboxService.publish("accountId: $id changed status to $status")
+}</pre>
+      <div class="file" style="margin-top:18px">OutboxService.kt</div>
+      <pre data-code data-hl="5">
+@Transactional
+fun publish(payload: String) {
+    dsl.insertInto(OUTBOX).set(PAYLOAD, payload)
+        .returning(MESSAGE_ID).fetchOne(MESSAGE_ID)!!
+    throw IOException("Failed to notify the broker")
+}</pre>
+    </div>
+    <div class="quiz">
+      <div class="question">The caller gets an <code>IOException</code>. What is in the database?</div>
+      <div class="options">
+        <div class="opt correct"><span class="shape">▲</span><span class="txt">Account updated, message published</span></div>
+        <div class="opt"><span class="shape">◆</span><span class="txt">Account updated, message <u>not</u> published</span></div>
+        <div class="opt"><span class="shape">●</span><span class="txt">Account <u>not</u> updated, message published</span></div>
+        <div class="opt"><span class="shape">■</span><span class="txt">Nothing saved</span></div>
+      </div>
+      <div class="quiz-hint">T · start 20s &nbsp;&nbsp; R · reveal</div>
+    </div>
+  </div>
+  <aside class="notes"><ul>
+    <li>Kotlin: no <code>@Throws</code>, no compiler complaint. Nobody notices this is a checked exception.</li>
+    <li>Answer: ▲. The method failed and everything committed, including the row written right before the failure.</li>
+  </ul></aside>
+</section>
+
+<!-- ============ v5 TAKEAWAY ============ -->
+<section class="slide">
+  <div class="meta"><span>PART 2 · TWO BOUNDARIES</span><span>v5 · TAKEAWAY</span></div>
+  <div class="head"><span class="badge case">v5 · checked exception</span></div>
+  <div class="tk">
+    <div class="left">
+      <h2>The method failed. <span class="grad">The transaction committed.</span></h2>
+      <div class="card">
+        <div class="tl">
+          <div class="ev"><span class="sql">BEGIN</span><span class="log">PROPAGATION_REQUIRED · <em>txId=773</em></span></div>
+          <div class="ev"><span class="sql">UPDATE account</span><span class="log"></span></div>
+          <div class="ev"><span class="sql none">— (join)</span><span class="log">Participating in existing transaction</span></div>
+          <div class="ev"><span class="sql">INSERT outbox</span><span class="log"></span></div>
+          <div class="ev"><span class="sql bad">throw ✖</span><span class="log">IOException</span></div>
+          <div class="ev"><span class="sql ok">COMMIT (!)</span><span class="log">Initiating transaction commit</span></div>
+        </div>
+      </div>
+      <table>
+        <tr><th>Boundary</th><th>Rolls back on</th><th>Checked exception</th></tr>
+        <tr><td><code>@Transactional</code></td><td><code>RuntimeException</code>, <code>Error</code></td><td><b>commit</b>, then rethrow</td></tr>
+        <tr><td><code>dsl.transaction</code></td><td>any <code>Throwable</code></td><td>rollback, rethrow</td></tr>
+      </table>
+    </div>
+    <div class="right">
+      <div class="card">
+        <h3>Why</h3>
+        <ul class="clean">
+          <li>Spring's default rule (<code>DefaultTransactionAttribute.rollbackOn</code>): checked exceptions are <b>“business outcomes”</b> and commit.</li>
+          <li>jOOQ catches <code>Throwable</code> in <code>transactionResult0</code>. With <code>dsl.transaction</code> as the outer boundary this would roll back.</li>
+        </ul>
+      </div>
+      <div class="deeper">
+        <div class="eyebrow">Deeper</div>
+        <p>Global fix, available here (spring-tx 7.0): <code>@EnableTransactionManagement(rollbackOn = RollbackOn.ALL_EXCEPTIONS)</code>. Local fix: <code>rollbackFor = [Exception::class]</code>.</p>
+      </div>
+      <div class="card rule"><p>Same failure, rolled back or committed, depending on who draws the boundary.</p></div>
+    </div>
+  </div>
+  <aside class="notes"><ul>
+    <li>search for the code of transactionResult0 method</li>
+    <li>End of Part 2: both tools work, but their propagation and rollback rules differ. Know which one is outermost.</li>
+    <li>Bridge: so far there was one owner of the transaction. What if there are two?</li>
+  </ul></aside>
+</section>
+
+<!-- ============ PART 3 ============ -->
+<section class="slide center">
+  <div class="eyebrow">Part 3</div>
+  <h1>Who <span class="grad">owns</span> the transaction?</h1>
+  <p class="lead" style="margin-top:26px">Round 6: one connection, two owners.<br>Round 7: one owner, two connections.</p>
+  <div class="part-num">03</div>
+</section>
+
+<!-- ============ v6 QUIZ ============ -->
+<section class="slide">
+  <div class="meta"><span>PART 3 · WHO OWNS THE TX</span><span>ROUND 6 / 8</span></div>
+  <div class="head"><span class="badge case">v6 · mixed providers</span></div>
+  <div class="qz">
+    <div class="code">
+      <div class="file">AccountService.kt</div>
+      <pre data-code data-hl="6">
+fun changeStatus(id: Int, status: String) {
+    dsl.transaction { _ ->
+        dsl.update(ACCOUNT).set(STATUS, status)
+            .where(ID.eq(id)).execute()
+        outboxService.publish("accountId: $id changed status to $status")
+        dsl.execute("SELECT 1/0")      // outer fails AFTER publish
+    }
+}</pre>
+      <div class="file" style="margin-top:18px">OutboxService.kt</div>
+      <pre data-code data-hl="1,2,3,6">
+private val jooqDsl = dsl.configuration()
+    .derive(DefaultTransactionProvider(connectionProvider))
+    .dsl()
+
+fun publish(payload: String) {
+    jooqDsl.transactionResult { _ ->
+        jooqDsl.insertInto(OUTBOX).set(PAYLOAD, payload)
+            .returning(MESSAGE_ID).fetchOne(MESSAGE_ID)!!
+    }
+}</pre>
+    </div>
+    <div class="quiz">
+      <div class="question">The outer block throws. What is in the database?</div>
+      <div class="options">
+        <div class="opt correct"><span class="shape">▲</span><span class="txt">Account updated, message published</span></div>
+        <div class="opt"><span class="shape">◆</span><span class="txt">Account updated, message <u>not</u> published</span></div>
+        <div class="opt"><span class="shape">●</span><span class="txt">Account <u>not</u> updated, message published</span></div>
+        <div class="opt"><span class="shape">■</span><span class="txt">Nothing saved</span></div>
+      </div>
+      <div class="quiz-hint">T · start 20s &nbsp;&nbsp; R · reveal</div>
+    </div>
+  </div>
+  <aside class="notes"><ul>
+    <li>Why would anyone write this? A shared library that builds its own DSLContext, or someone who wants "real jOOQ nested transactions".</li>
+    <li>Most people answer ■ ("the outer failed, so roll back everything") or ● ("the inner committed separately").</li>
+    <li>Answer: ▲. The outer failed and <b>everything</b> is committed.</li>
+  </ul></aside>
+</section>
+
+<!-- ============ v6 TAKEAWAY ============ -->
+<section class="slide">
+  <div class="meta"><span>PART 3 · WHO OWNS THE TX</span><span>v6 · TAKEAWAY</span></div>
+  <div class="head"><span class="badge case">v6 · mixed providers</span></div>
+  <div class="tk">
+    <div class="left">
+      <h2>The inner provider <span class="grad">committed the outer transaction</span></h2>
+      <div class="card">
+        <div class="tl">
+          <div class="ev"><span class="sql">BEGIN</span><span class="log">Spring · <em>txId=776 pid=72</em></span></div>
+          <div class="ev"><span class="sql">UPDATE account</span><span class="log"></span></div>
+          <div class="ev"><span class="sql none">— no savepoint</span><span class="log">DefaultTransactionProvider · <em>txId=776 subxact=0</em></span></div>
+          <div class="ev"><span class="sql">INSERT outbox</span><span class="log"></span></div>
+          <div class="ev"><span class="sql bad">COMMIT (jOOQ)</span><span class="log"><code>connection.commit()</code> on Spring's connection</span></div>
+          <div class="ev"><span class="sql none">— new tx</span><span class="log">back in changeStatus: <em>txId=777 pid=72</em></span></div>
+          <div class="ev"><span class="sql bad">SELECT 1/0 ✖</span><span class="log"></span></div>
+          <div class="ev"><span class="sql">ROLLBACK</span><span class="log">Spring rolls back an empty transaction</span></div>
+        </div>
+      </div>
+      <div class="result"><span class="chip y">account ACTIVE</span><span class="chip y">outbox 1 row</span><span class="chip x">DataIntegrityViolationException</span></div>
+    </div>
+    <div class="right">
+      <div class="card">
+        <h3>Why</h3>
+        <ul class="clean">
+          <li><code>DefaultTransactionProvider</code> keeps its savepoint stack in its <b>own</b> <code>Configuration</code>. It's empty, so it thinks it is top-level: no savepoint, then <code>commit()</code>.</li>
+          <li><code>TransactionAwareDataSourceProxy</code> hands it the connection Spring has bound. Same connection, two owners.</li>
+          <li>Spring is never told. It keeps going on a fresh transaction.</li>
+        </ul>
+      </div>
+      <div class="deeper">
+        <div class="eyebrow">Deeper</div>
+        <p>Remove the <code>SELECT 1/0</code> and the happy-path test passes: account ACTIVE, one outbox row. That's how this survives code review and CI. The only visible clue is <code>txId</code> changing from 776 to 777 in the middle of “one” transaction.</p>
+      </div>
+      <div class="card rule"><p>One <code>TransactionProvider</code> per connection: the Spring one.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ v7 QUIZ ============ -->
+<section class="slide">
+  <div class="meta"><span>PART 3 · WHO OWNS THE TX</span><span>ROUND 7 / 8</span></div>
+  <div class="head"><span class="badge case">v7 · coroutine</span></div>
+  <div class="qz">
+    <div class="code">
+      <div class="file">AccountService.kt</div>
+      <pre data-code data-hl="5,6,7,8">
+fun changeStatus(id: Int, status: String) {
+    dsl.transaction { _ ->
+        dsl.update(ACCOUNT).set(STATUS, status)
+            .where(ID.eq(id)).execute()
+        runBlocking(Dispatchers.IO) {
+            outboxService.publish("accountId: $id changed status to $status")
+        }
+        dsl.execute("SELECT 1/0")      // outer fails AFTER publish
+    }
+}</pre>
+      <div class="file" style="margin-top:18px">OutboxService.kt (same as v1)</div>
+      <pre data-code data-dim="1,2,3,4,5,6">
+fun publish(payload: String) {
+    dsl.transactionResult { _ ->
+        dsl.insertInto(OUTBOX).set(PAYLOAD, payload)
+            .returning(MESSAGE_ID).fetchOne(MESSAGE_ID)!!
+    }
+}</pre>
+    </div>
+    <div class="quiz">
+      <div class="question">The outer block throws. What is in the database?</div>
+      <div class="options">
+        <div class="opt"><span class="shape">▲</span><span class="txt">Account updated, message published</span></div>
+        <div class="opt"><span class="shape">◆</span><span class="txt">Account updated, message <u>not</u> published</span></div>
+        <div class="opt correct"><span class="shape">●</span><span class="txt">Account <u>not</u> updated, message published</span></div>
+        <div class="opt"><span class="shape">■</span><span class="txt">Nothing saved</span></div>
+      </div>
+      <div class="quiz-hint">T · start 20s &nbsp;&nbsp; R · reveal</div>
+    </div>
+  </div>
+  <aside class="notes"><ul>
+    <li>Remind them of the "impossible" option ● from the intro.</li>
+    <li>Answer: ●. An event for a change that never happened.</li>
+  </ul></aside>
+</section>
+
+<!-- ============ v7 TAKEAWAY ============ -->
+<section class="slide">
+  <div class="meta"><span>PART 3 · WHO OWNS THE TX</span><span>v7 · TAKEAWAY</span></div>
+  <div class="head"><span class="badge case">v7 · coroutine</span></div>
+  <div class="tk">
+    <div class="left">
+      <h2>A transaction belongs to a <span class="grad">thread</span>, not to a block of code</h2>
+      <div class="card">
+        <div class="tl">
+          <div class="ev"><span class="sql">BEGIN</span><span class="log">[Test worker] <em>txId=780 pid=72</em></span></div>
+          <div class="ev"><span class="sql">UPDATE account</span><span class="log">[Test worker]</span></div>
+          <div class="ev t2"><span class="sql">BEGIN (!)</span><span class="log">[coroutine#1] Creating <b>new</b> transaction · <em>txId=781 pid=73</em></span></div>
+          <div class="ev t2"><span class="sql">INSERT outbox</span><span class="log">[coroutine#1]</span></div>
+          <div class="ev t2"><span class="sql ok">COMMIT</span><span class="log">[coroutine#1] on the second connection</span></div>
+          <div class="ev"><span class="sql bad">SELECT 1/0 ✖</span><span class="log">[Test worker]</span></div>
+          <div class="ev"><span class="sql bad">ROLLBACK</span><span class="log">[Test worker] only undoes the UPDATE</span></div>
+        </div>
+      </div>
+      <div class="result"><span class="chip n">account NEW</span><span class="chip y">outbox 1 row</span><span class="chip">2 txIds · 2 pids</span></div>
+    </div>
+    <div class="right">
+      <div class="card">
+        <h3>Why</h3>
+        <ul class="clean">
+          <li><code>TransactionSynchronizationManager</code> keeps the tx and its connection in a <code>ThreadLocal</code>.</li>
+          <li>The IO thread sees no transaction. <code>NESTED</code> with no outer tx starts a <b>new top-level</b> one, on a new pooled connection.</li>
+          <li>Same trap: <code>@Async</code>, <code>CompletableFuture.supplyAsync</code>, <code>parallelStream()</code>, <code>withContext(…)</code>.</li>
+        </ul>
+      </div>
+      <div class="deeper">
+        <div class="eyebrow">Deeper</div>
+        <p>Also a <b>pool deadlock</b>: the caller holds a connection and blocks in <code>runBlocking</code>, waiting for a thread that needs another connection. With N concurrent requests and a pool of N, everyone waits until Hikari's <code>connectionTimeout</code> (30s).</p>
+        <p style="margin-top:10px"><code>@Transactional</code> on <code>suspend fun</code> needs a <code>ReactiveTransactionManager</code> (R2DBC). It does not help with JDBC.</p>
+      </div>
+      <div class="card rule"><p>Keep transactional work on one thread. Start coroutines outside the boundary.</p></div>
+    </div>
+  </div>
+  <aside class="notes"><ul>
+    <li>Compare with v6: v6 had one connection and two owners. v7 has one owner and two connections. Both break atomicity.</li>
+    <li>Bridge: so far every bug was in our code. Last round: the code is correct.</li>
+  </ul></aside>
+</section>
+
+<!-- ============ PART 4 ============ -->
+<section class="slide center">
+  <div class="eyebrow">Part 4</div>
+  <h1>Correct code <span class="grad">still fails</span></h1>
+  <p class="lead" style="margin-top:26px">One savepoint, one thread, one provider. And a concurrent user.</p>
+  <div class="part-num">04</div>
+</section>
+
+<!-- ============ v8 QUIZ ============ -->
+<section class="slide">
+  <div class="meta"><span>PART 4 · CORRECT CODE STILL FAILS</span><span>ROUND 8 / 8</span></div>
+  <div class="head"><span class="badge case">v8 · serializable</span></div>
+  <div class="qz">
+    <div class="code">
+      <div class="file">AccountService.kt · T1 activates account 1</div>
+      <pre data-code data-hl="3,4,5">
+fun activate(id: Int) {
+    dsl.transaction { _ ->
+        dsl.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        val active = dsl.fetchCount(ACCOUNT, STATUS.eq(ACTIVE))
+        check(active == 0) { "There is already an active account" }
+        dsl.update(ACCOUNT).set(STATUS, ACTIVE).where(ID.eq(id)).execute()
+        outboxService.publish("accountId: $id changed status to $ACTIVE")
+        Thread.sleep(2_000)            // slow work before COMMIT
+    }
+}</pre>
+      <div class="card" style="margin-top:16px;padding:16px 22px">
+        <p class="small"><b>T2</b>, meanwhile: same steps for account 2 (<code>SERIALIZABLE</code>, count = 0, update) and <b>commits first</b>.<br><code>publish()</code> catches its own errors, like v3.</p>
+      </div>
+    </div>
+    <div class="quiz">
+      <div class="question">What happens to T1?</div>
+      <div class="options">
+        <div class="opt"><span class="shape">▲</span><span class="txt">Commits. Two ACTIVE accounts</span></div>
+        <div class="opt"><span class="shape">◆</span><span class="txt">Its <code>UPDATE</code> fails right away with a lock error</span></div>
+        <div class="opt"><span class="shape">●</span><span class="txt"><code>publish()</code>'s catch swallows it: account ACTIVE, no event</span></div>
+        <div class="opt correct"><span class="shape">■</span><span class="txt">Fails at <code>COMMIT</code>. Everything rolled back</span></div>
+      </div>
+      <div class="quiz-hint">T · start 20s &nbsp;&nbsp; R · reveal</div>
+    </div>
+  </div>
+  <aside class="notes"><ul>
+    <li>Different rows are updated, so there is no row lock conflict. ◆ is the pessimistic-locking instinct.</li>
+    <li>● ties back to v3. Does the catch in <code>publish()</code> ever see this error?</li>
+    <li>Answer: ■.</li>
+  </ul></aside>
+</section>
+
+<!-- ============ v8 TAKEAWAY ============ -->
+<section class="slide">
+  <div class="meta"><span>PART 4 · CORRECT CODE STILL FAILS</span><span>v8 · TAKEAWAY</span></div>
+  <div class="head"><span class="badge case">v8 · serializable</span></div>
+  <div class="tk">
+    <div class="left">
+      <h2>Every statement succeeded. <span class="grad">The COMMIT didn't.</span></h2>
+      <div class="card">
+        <div class="tl">
+          <div class="ev"><span class="sql">T1 BEGIN</span><span class="log">SERIALIZABLE · <em>txId=784 pid=73</em></span></div>
+          <div class="ev"><span class="sql">T1 count = 0</span><span class="log">UPDATE account 1</span></div>
+          <div class="ev"><span class="sql sp">T1 SAVEPOINT</span><span class="log">INSERT outbox · RELEASE ✓ (catch never runs)</span></div>
+          <div class="ev t2"><span class="sql">T2 BEGIN</span><span class="log">SERIALIZABLE · count = 0 · UPDATE account 2</span></div>
+          <div class="ev t2"><span class="sql ok">T2 COMMIT ✓</span><span class="log">first committer wins</span></div>
+          <div class="ev"><span class="sql bad">T1 COMMIT ✖</span><span class="log">40001 · Rolling back after commit exception</span></div>
+        </div>
+      </div>
+      <pre style="font-size:15px;padding:14px 0"><span class="ln">CannotAcquireLockException: JDBC commit;</span><span class="ln">  ERROR: could not serialize access due to</span><span class="ln">  read/write dependencies among transactions</span><span class="ln">  Detail: Canceled on identification as a pivot,</span><span class="ln">  during commit attempt.</span></pre>
+      <div class="result"><span class="chip n">account 1 NEW</span><span class="chip y">account 2 ACTIVE</span><span class="chip n">outbox 0 rows</span></div>
+    </div>
+    <div class="right">
+      <div class="card">
+        <h3>Why</h3>
+        <ul class="clean">
+          <li>SSI tracks read/write dependencies. T1 read the set T2 wrote into, and the other way round: a cycle, i.e. <b>write skew</b>.</li>
+          <li>No row conflict, so no statement blocks or fails. PG resolves the cycle when T2 commits, and reports it at <b>T1's COMMIT</b>.</li>
+          <li>Under READ COMMITTED (the default), both commit: <b>two ACTIVE accounts</b>.</li>
+        </ul>
+      </div>
+      <div class="deeper">
+        <div class="eyebrow">Deeper</div>
+        <p>Spring maps <code>40001</code> to <code>CannotAcquireLockException</code>, nothing named “serialization”. That is your retry trigger. The retry (Spring 7's own <code>@Retryable</code>, or a loop) must wrap the <b>whole</b> transaction from outside. An inner retry, or a catch in <code>publish()</code>, can never see this error.</p>
+        <p style="margin-top:10px"><code>SpringTransactionProvider</code> has no isolation option, hence the <code>SET TRANSACTION</code> as first statement.</p>
+      </div>
+      <div class="card rule"><p>Handle and retry failures at the outermost boundary only.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SUMMARY ============ -->
+<section class="slide">
+  <div class="eyebrow">The whole picture</div>
+  <h2>Eight rounds, one table</h2>
+  <table>
+    <tr><th>Case</th><th>Inner mechanism</th><th>On PostgreSQL</th><th>Failure</th><th>Result</th><th>Atomic?</th></tr>
+    <tr><td>v1</td><td><code>dsl.transaction</code></td><td><code>SAVEPOINT</code> / <code>RELEASE</code></td><td>none</td><td>✅ ✅</td><td>✅</td></tr>
+    <tr><td>v2</td><td><code>dsl.transaction</code></td><td><code>ROLLBACK TO SAVEPOINT</code></td><td>inner, rethrown</td><td>❌ ❌</td><td>✅</td></tr>
+    <tr><td>v3</td><td><code>dsl.transaction</code></td><td><code>ROLLBACK TO SAVEPOINT</code></td><td>inner, swallowed</td><td>✅ ❌</td><td>❌ business rule</td></tr>
+    <tr><td>v4</td><td><code>@Transactional</code></td><td>nothing, joins</td><td>none</td><td>✅ ✅</td><td>✅</td></tr>
+    <tr><td>v5</td><td><code>@Transactional</code> + checked</td><td>nothing, joins</td><td>inner <code>IOException</code></td><td>✅ ✅</td><td>❌ failure committed</td></tr>
+    <tr><td>v6</td><td>jOOQ <code>DefaultTransactionProvider</code></td><td><code>COMMIT</code> of the outer tx</td><td>outer, later</td><td>✅ ✅</td><td>❌ rollback undid nothing</td></tr>
+    <tr><td>v7</td><td>another thread</td><td>2nd connection, own tx</td><td>outer, later</td><td>❌ ✅</td><td>❌ inner escaped</td></tr>
+    <tr><td>v8</td><td><code>dsl.transaction</code>, SERIALIZABLE</td><td><code>SAVEPOINT</code> / <code>RELEASE</code></td><td>outer <code>COMMIT</code> 40001</td><td>❌ ❌</td><td>✅ retry outer</td></tr>
+  </table>
+  <p class="small muted" style="margin-top:16px">Result = account · outbox</p>
+  <aside class="notes"><ul><li>Show the Kahoot leaderboard here.</li></ul></aside>
+</section>
+
+<!-- ============ RULES ============ -->
+<section class="slide">
+  <div class="eyebrow">For our codebase</div>
+  <h2>Seven rules</h2>
+  <div class="grid2" style="gap:18px 28px">
+    <div class="card"><p><b>1.</b> Nested <code>dsl.transaction</code> = savepoint. Rethrow inner failures unless a partial commit is intended. <span class="muted small">v1–v3</span></p></div>
+    <div class="card"><p><b>2.</b> <code>@Transactional</code> is <code>REQUIRED</code>, not <code>NESTED</code>. Set propagation explicitly when it matters. <span class="muted small">v4</span></p></div>
+    <div class="card"><p><b>3.</b> Roll back on every exception: <code>rollbackOn = ALL_EXCEPTIONS</code>. <span class="muted small">v5</span></p></div>
+    <div class="card"><p><b>4.</b> One <code>TransactionProvider</code>: the Spring one. Never derive a <code>DefaultTransactionProvider</code>. <span class="muted small">v6</span></p></div>
+    <div class="card"><p><b>5.</b> No thread hops inside a transaction: coroutines, <code>@Async</code>, parallel streams. <span class="muted small">v7</span></p></div>
+    <div class="card"><p><b>6.</b> Retry <code>CannotAcquireLockException</code> around the outermost transaction only. <span class="muted small">v8</span></p></div>
+  </div>
+  <div class="card rule" style="margin-top:20px"><p><b>7.</b> Don't guess. Check <code>JdbcTransactionManager</code> DEBUG logs and <code>pg_current_xact_id()</code> / <code>pg_backend_pid()</code>.</p></div>
+</section>
+
+<!-- ============ Q&A ============ -->
+<section class="slide center">
+  <div class="eyebrow">Thanks</div>
+  <h1><span class="grad">Questions?</span></h1>
+  <p class="lead" style="margin-top:30px">Every case is a test you can run:<br><code>./gradlew test --tests '*v6_jooq_default_tx_provider_outer_fails*'</code></p>
+  <aside class="notes"><ul>
+    <li>Live demo ideas: v4 with <code>propagation = NESTED</code>; v4 with inner throw caught by the outer → <code>UnexpectedRollbackException</code>; v6 without the <code>SELECT 1/0</code>.</li>
+  </ul></aside>
+</section>
+</div>
+
+<div id="timer"><svg width="96" height="96"><circle cx="48" cy="48" r="42" stroke="rgba(255,255,255,.1)" stroke-width="7" fill="none"/>
+<circle id="timerArc" cx="48" cy="48" r="42" stroke="#58a6ff" stroke-width="7" fill="none" stroke-linecap="round" stroke-dasharray="264" stroke-dashoffset="0"/>
+</svg><div class="num" id="timerNum">20</div></div>
+<div id="progress"></div><div id="counter"></div>
+<div id="help">← → navigate · R reveal · T timer · N notes · F fullscreen</div>
+<div id="notes"></div>
+
+<script>
+(() => {
+  // --- tiny Kotlin / SQL highlighter ---
+  const KW = /\b(fun|val|var|class|private|return|try|catch|throw|if|else|object|companion|const|import|package|is|in|null|true|false|override|suspend|SELECT|SET|TRANSACTION|ISOLATION|LEVEL|SERIALIZABLE)\b/g;
+  const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  function hlLine(src) {
+    const out = []; let rest = src;
+    const re = /(\/\/.*$)|("(?:[^"\\]|\\.)*")|(@[A-Za-z]+)|(\b\d[\d_]*L?\b)|(\b[A-Z][A-Za-z0-9_]*\b)|(\b[a-z][A-Za-z0-9_]*(?=\s*[({]))/g;
+    let last = 0, m;
+    while ((m = re.exec(src))) {
+      out.push(esc(src.slice(last, m.index)).replace(KW, '<span class="tk-kw">$1</span>'));
+      const [t] = m; const cls = m[1] ? "com" : m[2] ? "str" : m[3] ? "ann" : m[4] ? "num" : m[5] ? "ty" : "fn";
+      const inner = cls === "ty" && /^(SELECT|SET|TRANSACTION|ISOLATION|LEVEL|SERIALIZABLE)$/.test(t) ? "kw" : cls;
+      const kwFn = cls === "fn" && /^(fun|val|var|if|catch|try|class|return)$/.test(t) ? "kw" : inner;
+      out.push(`<span class="tk-${kwFn}">${esc(t)}</span>`);
+      last = re.lastIndex;
+    }
+    out.push(esc(src.slice(last)).replace(KW, '<span class="tk-kw">$1</span>'));
+    return out.join("");
+  }
+  document.querySelectorAll("pre[data-code]").forEach(pre => {
+    const raw = pre.textContent.replace(/^\n/, "").replace(/\n\s*$/, "");
+    const hl = new Set((pre.dataset.hl || "").split(",").filter(Boolean).map(Number));
+    const dim = new Set((pre.dataset.dim || "").split(",").filter(Boolean).map(Number));
+    pre.innerHTML = raw.split("\n").map((l, i) =>
+      `<span class="ln${hl.has(i + 1) ? " hl" : ""}${dim.has(i + 1) ? " dim" : ""}">${hlLine(l) || " "}</span>`).join("");
+  });
+
+  // --- deck ---
+  const stage = document.getElementById("stage");
+  const slides = [...document.querySelectorAll(".slide")];
+  const notes = document.getElementById("notes");
+  let idx = 0;
+  function fit() {
+    const s = Math.min(innerWidth / 1600, innerHeight / 900);
+    stage.style.transform = `translate(-50%, -50%) scale(${s})`;
+  }
+  function show(i) {
+    idx = Math.max(0, Math.min(slides.length - 1, i));
+    slides.forEach((s, j) => s.classList.toggle("active", j === idx));
+    document.getElementById("progress").style.width = `${(idx + 1) / slides.length * 100}%`;
+    document.getElementById("counter").textContent = `${idx + 1} / ${slides.length}`;
+    const n = slides[idx].querySelector("aside.notes");
+    notes.innerHTML = n ? `<h4>SPEAKER NOTES</h4>${n.innerHTML}` : `<h4>SPEAKER NOTES</h4><p class="muted">—</p>`;
+    stopTimer();
+    history.replaceState(null, "", `#${idx + 1}`);
+  }
+  // --- timer ---
+  let tHandle = null;
+  const timer = document.getElementById("timer"), arc = document.getElementById("timerArc"), num = document.getElementById("timerNum");
+  function stopTimer() { clearInterval(tHandle); tHandle = null; timer.classList.remove("on"); }
+  function startTimer(sec = 20) {
+    stopTimer(); let left = sec; timer.classList.add("on"); num.textContent = left; arc.style.strokeDashoffset = 0;
+    tHandle = setInterval(() => {
+      left--; num.textContent = Math.max(left, 0); arc.style.strokeDashoffset = 264 * (1 - left / sec);
+      if (left <= 0) { clearInterval(tHandle); num.textContent = "⏱"; }
+    }, 1000);
+  }
+  function reveal() { const q = slides[idx].querySelector(".quiz"); if (q) { q.classList.toggle("revealed"); stopTimer(); } }
+
+  addEventListener("keydown", e => {
+    const k = e.key;
+    if (["ArrowRight", "PageDown", " ", "Enter"].includes(k)) { e.preventDefault(); show(idx + 1); }
+    else if (["ArrowLeft", "PageUp", "Backspace"].includes(k)) { e.preventDefault(); show(idx - 1); }
+    else if (k === "Home") show(0); else if (k === "End") show(slides.length - 1);
+    else if (k === "r" || k === "R") reveal();
+    else if (k === "t" || k === "T") tHandle ? stopTimer() : startTimer(20);
+    else if (k === "n" || k === "N") notes.classList.toggle("on");
+    else if (k === "f" || k === "F") document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+  });
+  addEventListener("resize", fit);
+  fit(); show((parseInt(location.hash.slice(1)) || 1) - 1);
+})();
+</script>
+</body>
+</html>
