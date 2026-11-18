@@ -18,6 +18,7 @@ class AccountService(
 
     fun changeStatus(id: Int, status: String) {
         log.info("---changeStatus: beginning of the method, before transaction block")
+        log.info("---changeStatus: transactionProvider={}", dsl.configuration().transactionProvider().javaClass.name)
         dsl.transaction { _ ->
             log.info("---changeStatus: before calling db")
             dsl.update(TABLE)

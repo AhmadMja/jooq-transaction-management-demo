@@ -110,6 +110,25 @@ pre .ln.dim { opacity: .45; }
 .tk .right .card.rule p { font-weight: 500; }
 .quiz-hint { font: 500 15px var(--mono); color: var(--faint); margin-top: 16px; letter-spacing: .06em; }
 
+/* v8 setup visual */
+.v8vis { display: flex; flex-direction: column; }
+.v8state { display: flex; align-items: center; gap: 12px; margin-bottom: 30px; }
+.v8state .acct { font: 600 17px var(--mono); padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--glass); }
+.v8state .v8rule { font: 600 17px var(--mono); padding: 6px 12px; border-radius: 8px; border: 1px solid var(--amber); color: var(--amber); }
+.v8state .sep { width: 1px; height: 26px; background: var(--line); margin: 0 4px; }
+.lanes { display: grid; grid-template-columns: 34px 1fr 1fr; gap: 6px 14px; font: 500 17px/1.3 var(--mono); }
+.lanes .lh { font: 700 16px var(--mono); letter-spacing: .06em; padding: 4px 18px; }
+.lanes .lh.t1 { color: var(--ink); } .lanes .lh.t2 { color: var(--accent); }
+.lanes .tn { color: var(--faint); font-size: 15px; display: grid; place-items: center; }
+.lanes .st { padding: 11px 14px; border-radius: 10px; background: var(--glass); border: 1px solid var(--line); white-space: nowrap; }
+.lanes .note { display: block; font-size: 14px; color: var(--muted); margin-top: 3px; }
+.lanes .st.t1 { border-left: 4px solid var(--ink); }
+.lanes .st.t2 { border-left: 4px solid var(--accent); color: #cfe3ff; }
+.lanes .st.empty { background: none; border: none; border-left: 2px dashed var(--line); border-radius: 0; margin-left: 14px; }
+.lanes .st.wait { border-style: dashed; border-left-style: solid; background: transparent; color: var(--muted); display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+.lanes .st.ok { color: var(--lime); font-weight: 700; }
+.lanes .st.q { color: var(--amber); font-weight: 700; border-color: var(--amber); }
+
 /* timer */
 #timer { position: fixed; top: 22px; right: 26px; width: 96px; height: 96px; z-index: 5; opacity: 0; transition: opacity .3s; }
 #timer.on { opacity: 1; }
@@ -160,7 +179,7 @@ aside.notes { display: none; }
 <!-- ============ 1. TITLE ============ -->
 <section class="slide center">
   <div class="eyebrow">jOOQ 3.21 · Spring Boot 4.1 · PostgreSQL 18</div>
-  <h1>What does <span class="grad">“nested”</span><br>actually commit?</h1>
+  <h1>When <span class="grad">“nested”</span><br>transactions surprise you!</h1>
   <div class="row" style="margin-top:50px;gap:16px;justify-content:center">
     <span class="badge case">8 quizzes</span><span class="badge case">real logs</span><span class="badge case">real Postgres</span>
   </div>
@@ -810,6 +829,9 @@ fun publish(payload: String) {
       <div class="card rule"><p>One <code>TransactionProvider</code> per connection: the Spring one.</p></div>
     </div>
   </div>
+  <aside class="notes"><ul>
+    <li>Commit works on connection not transaction.</li>
+  </ul></aside>
 </section>
 
 <!-- ============ v7 QUIZ ============ -->
@@ -903,18 +925,21 @@ fun publish(payload: String) {
 <section class="slide center">
   <div class="eyebrow">Part 4</div>
   <h1>Correct code <span class="grad">still fails</span></h1>
-  <p class="lead" style="margin-top:26px">One savepoint, one thread, one provider. And a concurrent user.</p>
+  <p class="lead" style="margin-top:26px">One savepoint, one thread, one provider. Two concurrent users.</p>
   <div class="part-num">04</div>
 </section>
 
-<!-- ============ v8 QUIZ ============ -->
+<!-- ============ v8 CODE ============ -->
 <section class="slide">
-  <div class="meta"><span>PART 4 · CORRECT CODE STILL FAILS</span><span>ROUND 8 / 8</span></div>
+  <div class="meta"><span>PART 4 · CORRECT CODE STILL FAILS</span><span>v8 · CODE</span></div>
   <div class="head"><span class="badge case">v8 · serializable</span></div>
   <div class="qz">
     <div class="code">
       <div class="file">AccountService.kt · T1 activates account 1</div>
-      <pre data-code data-hl="3,4,5">
+      <pre data-code data-hl="1,2,3,6,7,8">
+// New business rule: at most one ACTIVE account.
+// Two transactions run activate() concurrently: T1 for
+// account 1, T2 for account 2. T2 commits first.
 fun activate(id: Int) {
     dsl.transaction { _ ->
         dsl.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
@@ -925,9 +950,55 @@ fun activate(id: Int) {
         Thread.sleep(2_000)            // slow work before COMMIT
     }
 }</pre>
-      <div class="card" style="margin-top:16px;padding:16px 22px">
-        <p class="small"><b>T2</b>, meanwhile: same steps for account 2 (<code>SERIALIZABLE</code>, count = 0, update) and <b>commits first</b>.<br><code>publish()</code> catches its own errors, like v3.</p>
+      <div class="file" style="margin-top:18px">OutboxService.kt · same as v3</div>
+      <pre data-code data-hl="2,7,8">
+fun publish(payload: String) {
+    try {
+        dsl.transactionResult { _ ->
+            dsl.insertInto(OUTBOX).set(PAYLOAD, payload)
+                .returning(MESSAGE_ID).fetchOne(MESSAGE_ID)!!
+        }
+    } catch (e: Exception) {
+        log.info("Handled exception ...")
+    }
+}</pre>
+    </div>
+  </div>
+  <aside class="notes"><ul>
+    <li>Walk through the code. Nothing here is a bug on its own: one provider, one thread, savepoint in a try/catch like v3.</li>
+    <li>What's new: a rule that spans rows, SERIALIZABLE, and a second user. Next slide shows how the two interleave.</li>
+  </ul></aside>
+</section>
+
+<!-- ============ v8 QUIZ ============ -->
+<section class="slide">
+  <div class="meta"><span>PART 4 · CORRECT CODE STILL FAILS</span><span>ROUND 8 / 8</span></div>
+  <div class="head"><span class="badge case">v8 · serializable</span></div>
+  <div class="qz">
+    <div class="code v8vis">
+      <div class="v8state">
+        <span class="muted small">Start:</span>
+        <span class="acct">account 1 · NEW</span>
+        <span class="acct">account 2 · NEW</span>
+        <span class="sep"></span>
+        <span class="v8rule">rule: ≤ 1 ACTIVE</span>
       </div>
+      <div class="lanes">
+        <div class="lh"></div>
+        <div class="lh t1">T1 · activate(1)</div>
+        <div class="lh t2">T2 · activate(2)</div>
+
+        <div class="tn">1</div><div class="st t1">BEGIN · SERIALIZABLE</div><div class="st empty"></div>
+        <div class="tn">2</div><div class="st t1">count ACTIVE → <b>0</b> · rule OK</div><div class="st empty"></div>
+        <div class="tn">3</div><div class="st t1">UPDATE account 1 → ACTIVE</div><div class="st empty"></div>
+        <div class="tn">4</div><div class="st t1">publish(): INSERT outbox<span class="note">inside a savepoint · released ✓</span></div><div class="st empty"></div>
+        <div class="tn">5</div><div class="st t1 wait" style="grid-row:span 4"><span>slow work (2s)…</span><span class="note">still open, not committed</span></div><div class="st t2">BEGIN · SERIALIZABLE</div>
+        <div class="tn">6</div><div class="st t2">count ACTIVE → <b>0</b><span class="note">T1's update is not visible yet</span></div>
+        <div class="tn">7</div><div class="st t2">UPDATE account 2 → ACTIVE</div>
+        <div class="tn">8</div><div class="st t2 ok">COMMIT ✓</div>
+        <div class="tn">9</div><div class="st t1 q">COMMIT → ?</div><div class="st empty"></div>
+      </div>
+      <p class="muted small" style="margin-top:14px">time ↓ · different rows · each saw 0 ACTIVE before the other committed</p>
     </div>
     <div class="quiz">
       <div class="question">What happens to T1?</div>
@@ -941,9 +1012,10 @@ fun activate(id: Int) {
     </div>
   </div>
   <aside class="notes"><ul>
-    <li>Different rows are updated, so there is no row lock conflict. ◆ is the pessimistic-locking instinct.</li>
-    <li>● ties back to v3. Does the catch in <code>publish()</code> ever see this error?</li>
-    <li>Answer: ■.</li>
+    <li>Question is more about: can the setup enforce the business rule or not?</li>
+<!--    <li>Different rows are updated, so there is no row lock conflict. ◆ is the pessimistic-locking instinct.</li>-->
+<!--    <li>● ties back to v3. Does the catch in <code>publish()</code> ever see this error?</li>-->
+<!--    <li>Answer: ■.</li>-->
   </ul></aside>
 </section>
 
@@ -1020,11 +1092,22 @@ fun activate(id: Int) {
   <div class="card rule" style="margin-top:20px"><p><b>7.</b> Don't guess. Check <code>JdbcTransactionManager</code> DEBUG logs and <code>pg_current_xact_id()</code> / <code>pg_backend_pid()</code>.</p></div>
 </section>
 
+<!-- ============ NEXT STEPS ============ -->
+<section class="slide">
+  <div class="eyebrow">What's next</div>
+  <h2>Next steps</h2>
+  <div class="grid2" style="gap:18px 28px">
+    <div class="card"><h3>1. A Claude Code skill</h3><p>I'm turning these common transaction mistakes into a <b>skill</b> that knows what to look for: checked exceptions under <code>@Transactional</code>, a second <code>TransactionProvider</code>, thread hops inside a transaction, and more.</p></div>
+    <div class="card"><h3>2. Run it on our projects</h3><p>Then I'll run the skill against <b>our services</b> to detect potential flaws before they turn into a silent partial commit in production.</p></div>
+  </div>
+  <div class="card rule" style="margin-top:20px"><p>Rules on a slide are forgotten. Rules in a tool get checked.</p></div>
+</section>
+
 <!-- ============ Q&A ============ -->
 <section class="slide center">
   <div class="eyebrow">Thanks</div>
   <h1><span class="grad">Questions?</span></h1>
-  <p class="lead" style="margin-top:30px">Every case is a test you can run:<br><code>./gradlew test --tests '*v6_jooq_default_tx_provider_outer_fails*'</code></p>
+  <p class="lead" style="margin-top:30px">Every case is a test you can run:<br><code>./gradlew test --tests '*v1_base*'</code></p>
   <aside class="notes"><ul>
     <li>Live demo ideas: v4 with <code>propagation = NESTED</code>; v4 with inner throw caught by the outer → <code>UnexpectedRollbackException</code>; v6 without the <code>SELECT 1/0</code>.</li>
   </ul></aside>

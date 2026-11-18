@@ -18,18 +18,18 @@ class OutboxService(
 
     val log = LoggerFactory.getLogger(OutboxService::class.java)
 
-    private val jooqDefaultTransactionProvider = dsl.configuration()
+    private val dslWithDefaultTransactionProvider = dsl.configuration()
         // Nested is true if not specified.
         .derive(DefaultTransactionProvider(connectionProvider))
         .dsl()
 
     fun publish(payload: String) {
         log.info("------publish: before transaction block.")
-        log.info("------publish: transactionProvider={}", jooqDefaultTransactionProvider.configuration().transactionProvider().javaClass.name)
-        jooqDefaultTransactionProvider.transactionResult { _ ->
+        log.info("------publish: transactionProvider={}", dslWithDefaultTransactionProvider.configuration().transactionProvider().javaClass.name)
+        dslWithDefaultTransactionProvider.transactionResult { _ ->
             log.info("------publish: inside transaction block before calling db.")
-            logTransactionInfo(jooqDefaultTransactionProvider)
-            jooqDefaultTransactionProvider.insertInto(TABLE)
+            logTransactionInfo(dslWithDefaultTransactionProvider)
+            dslWithDefaultTransactionProvider.insertInto(TABLE)
                 .set(PAYLOAD, payload)
                 .returning(MESSAGE_ID)
                 .fetchOne(MESSAGE_ID)!!
