@@ -10,7 +10,6 @@
   --accent: #58a6ff; --violet: var(--accent); --cyan: var(--accent); --pink: var(--accent);
   --lime: #3fb950; --amber: #d29922; --red: #f85149;
   --glass: #161b22; --line: #30363d;
-  --k-red: #e21b3c; --k-blue: #1368ce; --k-yellow: #d89e00; --k-green: #26890c;
   --sans: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
 }
@@ -73,16 +72,15 @@ pre .ln.dim { opacity: .45; }
 /* quiz */
 .question { font-size: 40px; font-weight: 750; letter-spacing: -.02em; line-height: 1.2; margin: 6px 0 24px; }
 .options { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.opt { display: flex; align-items: center; gap: 18px; padding: 20px 24px; border-radius: 14px; font-size: 23px; font-weight: 650; color: #fff; line-height: 1.3;
-  transition: opacity .4s, transform .4s, filter .4s, box-shadow .4s; position: relative; min-height: 88px; }
+.opt { display: flex; align-items: center; gap: 18px; padding: 20px 24px; border-radius: 14px; font-size: 23px; font-weight: 600; color: var(--ink); line-height: 1.3;
+  background: var(--glass); border: 1px solid var(--line);
+  transition: opacity .4s, border-color .4s; position: relative; min-height: 88px; }
 .opt .txt { flex: 1; min-width: 0; }
-.opt .shape { font-size: 26px; width: 34px; text-align: center; flex: none; }
-.opt:nth-child(1) { background: var(--k-red); } .opt:nth-child(2) { background: var(--k-blue); }
-.opt:nth-child(3) { background: var(--k-yellow); } .opt:nth-child(4) { background: var(--k-green); }
-.opt code { background: rgba(0,0,0,.25) !important; color: #fff !important; }
-.revealed .opt:not(.correct) { opacity: .22; filter: grayscale(.8); transform: scale(.97); }
-.revealed .opt.correct { transform: scale(1.03); box-shadow: 0 0 0 4px #fff; }
-.revealed .opt.correct::after { content: "✓"; position: absolute; right: 22px; font-size: 36px; font-weight: 900; }
+.opt .key { font: 700 20px var(--mono); width: 34px; height: 34px; display: grid; place-items: center; flex: none; border-radius: 8px; border: 1px solid var(--line); color: var(--muted); }
+.revealed .opt:not(.correct) { opacity: .35; }
+.revealed .opt.correct { border-color: var(--lime); }
+.revealed .opt.correct .key { border-color: var(--lime); color: var(--lime); }
+.revealed .opt.correct::after { content: "✓"; position: absolute; right: 22px; font-size: 30px; font-weight: 800; color: var(--lime); }
 .qz { display: flex; gap: 40px; flex: 1; min-height: 0; }
 .qz .code { width: 900px; flex: none; }
 .qz pre { font-size: 16px; line-height: 1.5; padding: 18px 0; }
@@ -184,7 +182,7 @@ aside.notes { display: none; }
     <span class="badge case">8 quizzes</span><span class="badge case">real logs</span><span class="badge case">real Postgres</span>
   </div>
   <aside class="notes"><ul>
-    <li>Open Kahoot, share the PIN now.</li>
+    <li>Open Mentimeter, share the code now.</li>
     <li>Rule of the game: every quiz runs against the same scenario. Only one thing changes per round.</li>
   </ul></aside>
 </section>
@@ -295,7 +293,7 @@ fun publish(payload: String) {                // "inner"
   </div>
 
   <aside class="notes"><ul>
-    <li>Point out option ● (account not updated, but event published). It looks impossible. Keep it in mind.</li>
+    <li>Point out option C (account not updated, but event published). It looks impossible. Keep it in mind.</li>
   </ul></aside>
 </section>
 
@@ -334,18 +332,18 @@ fun publish(payload: String) {
     <div class="quiz">
       <div class="question">What does the inner <code>dsl.transactionResult</code> send to Postgres?</div>
       <div class="options">
-        <div class="opt"><span class="shape">▲</span><span class="txt">Nothing. It joins the outer transaction</span></div>
-        <div class="opt correct"><span class="shape">◆</span><span class="txt"><code>SAVEPOINT</code> … <code>RELEASE SAVEPOINT</code></span></div>
-        <div class="opt"><span class="shape">●</span><span class="txt"><code>BEGIN</code> … <code>COMMIT</code> on the same connection</span></div>
-        <div class="opt"><span class="shape">■</span><span class="txt">A second connection with its own <code>BEGIN</code> … <code>COMMIT</code></span></div>
+        <div class="opt"><span class="key">A</span><span class="txt">Nothing. It joins the outer transaction</span></div>
+        <div class="opt correct"><span class="key">B</span><span class="txt"><code>SAVEPOINT</code> … <code>RELEASE SAVEPOINT</code></span></div>
+        <div class="opt"><span class="key">C</span><span class="txt"><code>BEGIN</code> … <code>COMMIT</code> on the same connection</span></div>
+        <div class="opt"><span class="key">D</span><span class="txt">A second connection with its own <code>BEGIN</code> … <code>COMMIT</code></span></div>
       </div>
       <div class="quiz-hint">T · start 20s &nbsp;&nbsp; R · reveal</div>
     </div>
   </div>
   <aside class="notes"><ul>
     <li>Final state is boring (both saved). The interesting part is <i>what SQL</i> the inner block produces.</li>
-    <li>Expect split votes between ▲ and ◆. People who know Spring's <code>@Transactional</code> default pick ▲.</li>
-    <li>Answer: ◆ savepoint.</li>
+    <li>Expect split votes between A and B. People who know Spring's <code>@Transactional</code> default pick A.</li>
+    <li>Answer: B savepoint.</li>
   </ul></aside>
 </section>
 
@@ -419,17 +417,17 @@ fun publish(payload: String) {
     <div class="quiz">
       <div class="question">What ends up in the database?</div>
       <div class="options">
-        <div class="opt"><span class="shape">▲</span><span class="txt">Account updated, message published</span></div>
-        <div class="opt"><span class="shape">◆</span><span class="txt">Account updated, message <u>not</u> published</span></div>
-        <div class="opt"><span class="shape">●</span><span class="txt">Account <u>not</u> updated, message published</span></div>
-        <div class="opt correct"><span class="shape">■</span><span class="txt">Nothing saved</span></div>
+        <div class="opt"><span class="key">A</span><span class="txt">Account updated, message published</span></div>
+        <div class="opt"><span class="key">B</span><span class="txt">Account updated, message <u>not</u> published</span></div>
+        <div class="opt"><span class="key">C</span><span class="txt">Account <u>not</u> updated, message published</span></div>
+        <div class="opt correct"><span class="key">D</span><span class="txt">Nothing saved</span></div>
       </div>
       <div class="quiz-hint">T · start 20s &nbsp;&nbsp; R · reveal</div>
     </div>
   </div>
   <aside class="notes"><ul>
-    <li>Distractor ◆: "the savepoint isolates the failure, so the outer part survives". Half true.</li>
-    <li>Answer: ■. Caller gets <code>DataIntegrityViolationException</code>.</li>
+    <li>Distractor B: "the savepoint isolates the failure, so the outer part survives". Half true.</li>
+    <li>Answer: D. Caller gets <code>DataIntegrityViolationException</code>.</li>
   </ul></aside>
 </section>
 
@@ -503,17 +501,17 @@ fun publish(payload: String) {
     <div class="quiz">
       <div class="question">What ends up in the database?</div>
       <div class="options">
-        <div class="opt"><span class="shape">▲</span><span class="txt">Account updated, message published</span></div>
-        <div class="opt correct"><span class="shape">◆</span><span class="txt">Account updated, message <u>not</u> published</span></div>
-        <div class="opt"><span class="shape">●</span><span class="txt">Account <u>not</u> updated, message published</span></div>
-        <div class="opt"><span class="shape">■</span><span class="txt">Nothing saved</span></div>
+        <div class="opt"><span class="key">A</span><span class="txt">Account updated, message published</span></div>
+        <div class="opt correct"><span class="key">B</span><span class="txt">Account updated, message <u>not</u> published</span></div>
+        <div class="opt"><span class="key">C</span><span class="txt">Account <u>not</u> updated, message published</span></div>
+        <div class="opt"><span class="key">D</span><span class="txt">Nothing saved</span></div>
       </div>
       <div class="quiz-hint">T · start 20s &nbsp;&nbsp; R · reveal</div>
     </div>
   </div>
   <aside class="notes"><ul>
-    <li>Distractor ■: "the transaction is aborted after the error, so the commit must fail". That's true without a savepoint.</li>
-    <li>Answer: ◆. No exception reaches the caller.</li>
+    <li>Distractor D: "the transaction is aborted after the error, so the commit must fail". That's true without a savepoint.</li>
+    <li>Answer: B. No exception reaches the caller.</li>
   </ul></aside>
 </section>
 
@@ -594,17 +592,17 @@ fun publish(payload: String) {
     <div class="quiz">
       <div class="question">What does the inner <code>@Transactional publish()</code> send to Postgres?</div>
       <div class="options">
-        <div class="opt correct"><span class="shape">▲</span><span class="txt">Nothing. It joins the outer transaction</span></div>
-        <div class="opt"><span class="shape">◆</span><span class="txt"><code>SAVEPOINT</code> … <code>RELEASE SAVEPOINT</code></span></div>
-        <div class="opt"><span class="shape">●</span><span class="txt"><code>BEGIN</code> … <code>COMMIT</code> on the same connection</span></div>
-        <div class="opt"><span class="shape">■</span><span class="txt">A second connection with its own <code>BEGIN</code> … <code>COMMIT</code></span></div>
+        <div class="opt correct"><span class="key">A</span><span class="txt">Nothing. It joins the outer transaction</span></div>
+        <div class="opt"><span class="key">B</span><span class="txt"><code>SAVEPOINT</code> … <code>RELEASE SAVEPOINT</code></span></div>
+        <div class="opt"><span class="key">C</span><span class="txt"><code>BEGIN</code> … <code>COMMIT</code> on the same connection</span></div>
+        <div class="opt"><span class="key">D</span><span class="txt">A second connection with its own <code>BEGIN</code> … <code>COMMIT</code></span></div>
       </div>
       <div class="quiz-hint">T · start 20s &nbsp;&nbsp; R · reveal</div>
     </div>
   </div>
   <aside class="notes"><ul>
-    <li>Same four answers as round 1, on purpose. Round 1 was ◆.</li>
-    <li>Answer: ▲ join. Both rows saved.</li>
+    <li>Same four answers as round 1, on purpose. Round 1 was B.</li>
+    <li>Answer: A join. Both rows saved.</li>
   </ul></aside>
 </section>
 
@@ -678,17 +676,17 @@ fun publish(payload: String) {
     <div class="quiz">
       <div class="question">The caller gets an <code>IOException</code>. What is in the database?</div>
       <div class="options">
-        <div class="opt correct"><span class="shape">▲</span><span class="txt">Account updated, message published</span></div>
-        <div class="opt"><span class="shape">◆</span><span class="txt">Account updated, message <u>not</u> published</span></div>
-        <div class="opt"><span class="shape">●</span><span class="txt">Account <u>not</u> updated, message published</span></div>
-        <div class="opt"><span class="shape">■</span><span class="txt">Nothing saved</span></div>
+        <div class="opt correct"><span class="key">A</span><span class="txt">Account updated, message published</span></div>
+        <div class="opt"><span class="key">B</span><span class="txt">Account updated, message <u>not</u> published</span></div>
+        <div class="opt"><span class="key">C</span><span class="txt">Account <u>not</u> updated, message published</span></div>
+        <div class="opt"><span class="key">D</span><span class="txt">Nothing saved</span></div>
       </div>
       <div class="quiz-hint">T · start 20s &nbsp;&nbsp; R · reveal</div>
     </div>
   </div>
   <aside class="notes"><ul>
     <li>Kotlin: no <code>@Throws</code>, no compiler complaint. Nobody notices this is a checked exception.</li>
-    <li>Answer: ▲. The method failed and everything committed, including the row written right before the failure.</li>
+    <li>Answer: A. The method failed and everything committed, including the row written right before the failure.</li>
   </ul></aside>
 </section>
 
@@ -777,18 +775,18 @@ fun publish(payload: String) {
     <div class="quiz">
       <div class="question">The outer block throws. What is in the database?</div>
       <div class="options">
-        <div class="opt correct"><span class="shape">▲</span><span class="txt">Account updated, message published</span></div>
-        <div class="opt"><span class="shape">◆</span><span class="txt">Account updated, message <u>not</u> published</span></div>
-        <div class="opt"><span class="shape">●</span><span class="txt">Account <u>not</u> updated, message published</span></div>
-        <div class="opt"><span class="shape">■</span><span class="txt">Nothing saved</span></div>
+        <div class="opt correct"><span class="key">A</span><span class="txt">Account updated, message published</span></div>
+        <div class="opt"><span class="key">B</span><span class="txt">Account updated, message <u>not</u> published</span></div>
+        <div class="opt"><span class="key">C</span><span class="txt">Account <u>not</u> updated, message published</span></div>
+        <div class="opt"><span class="key">D</span><span class="txt">Nothing saved</span></div>
       </div>
       <div class="quiz-hint">T · start 20s &nbsp;&nbsp; R · reveal</div>
     </div>
   </div>
   <aside class="notes"><ul>
     <li>Why would anyone write this? A shared library that builds its own DSLContext, or someone who wants "real jOOQ nested transactions".</li>
-    <li>Most people answer ■ ("the outer failed, so roll back everything") or ● ("the inner committed separately").</li>
-    <li>Answer: ▲. The outer failed and <b>everything</b> is committed.</li>
+    <li>Most people answer D ("the outer failed, so roll back everything") or C ("the inner committed separately").</li>
+    <li>Answer: A. The outer failed and <b>everything</b> is committed.</li>
   </ul></aside>
 </section>
 
@@ -864,17 +862,17 @@ fun publish(payload: String) {
     <div class="quiz">
       <div class="question">The outer block throws. What is in the database?</div>
       <div class="options">
-        <div class="opt"><span class="shape">▲</span><span class="txt">Account updated, message published</span></div>
-        <div class="opt"><span class="shape">◆</span><span class="txt">Account updated, message <u>not</u> published</span></div>
-        <div class="opt correct"><span class="shape">●</span><span class="txt">Account <u>not</u> updated, message published</span></div>
-        <div class="opt"><span class="shape">■</span><span class="txt">Nothing saved</span></div>
+        <div class="opt"><span class="key">A</span><span class="txt">Account updated, message published</span></div>
+        <div class="opt"><span class="key">B</span><span class="txt">Account updated, message <u>not</u> published</span></div>
+        <div class="opt correct"><span class="key">C</span><span class="txt">Account <u>not</u> updated, message published</span></div>
+        <div class="opt"><span class="key">D</span><span class="txt">Nothing saved</span></div>
       </div>
       <div class="quiz-hint">T · start 20s &nbsp;&nbsp; R · reveal</div>
     </div>
   </div>
   <aside class="notes"><ul>
-    <li>Remind them of the "impossible" option ● from the intro.</li>
-    <li>Answer: ●. An event for a change that never happened.</li>
+    <li>Remind them of the "impossible" option C from the intro.</li>
+    <li>Answer: C. An event for a change that never happened.</li>
   </ul></aside>
 </section>
 
@@ -1003,19 +1001,19 @@ fun publish(payload: String) {
     <div class="quiz">
       <div class="question">What happens to T1?</div>
       <div class="options">
-        <div class="opt"><span class="shape">▲</span><span class="txt">Commits. Two ACTIVE accounts</span></div>
-        <div class="opt"><span class="shape">◆</span><span class="txt">Its <code>UPDATE</code> fails right away with a lock error</span></div>
-        <div class="opt"><span class="shape">●</span><span class="txt"><code>publish()</code>'s catch swallows it: account ACTIVE, no event</span></div>
-        <div class="opt correct"><span class="shape">■</span><span class="txt">Fails at <code>COMMIT</code>. Everything rolled back</span></div>
+        <div class="opt"><span class="key">A</span><span class="txt">Commits. Two ACTIVE accounts</span></div>
+        <div class="opt"><span class="key">B</span><span class="txt">Its <code>UPDATE</code> fails right away with a lock error</span></div>
+        <div class="opt"><span class="key">C</span><span class="txt"><code>publish()</code>'s catch swallows it: account ACTIVE, no event</span></div>
+        <div class="opt correct"><span class="key">D</span><span class="txt">Fails at <code>COMMIT</code>. Everything rolled back</span></div>
       </div>
       <div class="quiz-hint">T · start 20s &nbsp;&nbsp; R · reveal</div>
     </div>
   </div>
   <aside class="notes"><ul>
     <li>Question is more about: can the setup enforce the business rule or not?</li>
-<!--    <li>Different rows are updated, so there is no row lock conflict. ◆ is the pessimistic-locking instinct.</li>-->
-<!--    <li>● ties back to v3. Does the catch in <code>publish()</code> ever see this error?</li>-->
-<!--    <li>Answer: ■.</li>-->
+<!--    <li>Different rows are updated, so there is no row lock conflict. B is the pessimistic-locking instinct.</li>-->
+<!--    <li>C ties back to v3. Does the catch in <code>publish()</code> ever see this error?</li>-->
+<!--    <li>Answer: D.</li>-->
   </ul></aside>
 </section>
 
@@ -1074,7 +1072,7 @@ fun publish(payload: String) {
     <tr><td>v8</td><td><code>dsl.transaction</code>, SERIALIZABLE</td><td><code>SAVEPOINT</code> / <code>RELEASE</code></td><td>outer <code>COMMIT</code> 40001</td><td>❌ ❌</td><td>✅ retry outer</td></tr>
   </table>
   <p class="small muted" style="margin-top:16px">Result = account · outbox</p>
-  <aside class="notes"><ul><li>Show the Kahoot leaderboard here.</li></ul></aside>
+  <aside class="notes"><ul><li>Show the Mentimeter leaderboard here.</li></ul></aside>
 </section>
 
 <!-- ============ RULES ============ -->
